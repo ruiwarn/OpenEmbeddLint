@@ -1,0 +1,340 @@
+scripts/manage_tools.py
+  s_ba718d54c093cd::t_46978d1a21dc6d 1-452
+tests/test_misra.py
+  s_ba718d54c093cd::t_70a55a7ce2a012 1-190
+pyproject.toml
+  s_ba718d54c093cd::t_9baeef1ddebf32 7,40-42
+  s_ba718d54c093cd::t_d3436cc6978251 1-6,8-39
+tests/test_manage_tools.py
+  s_ba718d54c093cd::t_9baeef1ddebf32 1-94
+tests/test_installation.py
+  s_ba718d54c093cd::t_9baeef1ddebf32 1-74
+.gitignore
+  s_ba718d54c093cd::t_821e427fa9047a 1-14
+.github/workflows/package.yml
+  s_ba718d54c093cd::t_9baeef1ddebf32 23-29
+  s_ba718d54c093cd::t_d3436cc6978251 1-22,30-57
+THIRD_PARTY.md
+  s_ba718d54c093cd::t_d3436cc6978251 1-14,19-27
+  s_ba718d54c093cd::t_821e427fa9047a 15-18
+.gitattributes
+  s_ba718d54c093cd::t_5db338469abb13 1
+README.md
+  s_ba718d54c093cd::t_2b3a698332caa7 1-177
+README.zh-CN.md
+  s_ba718d54c093cd::t_9bbce675da0fdf 1-161
+SKILL.md
+  s_ba718d54c093cd::t_7c61e2abdebf3e 1-90
+config.schema.json
+  s_ba718d54c093cd::t_7040eeae214043 1-121
+defaults/.clang-tidy
+  s_ba718d54c093cd::t_d7cc5ae9cec2bc 1-14
+defaults/config.json
+  s_ba718d54c093cd::t_85c7023eb7cd58 1-38
+references/configuration.md
+  s_ba718d54c093cd::t_41bb59c92d67a6 1-278
+references/quality-review.md
+  s_ba718d54c093cd::t_ecb68a9b16ea33 1-68
+references/report-contract.md
+  s_ba718d54c093cd::t_abf8bd9feb549d 1-57
+scripts/build_fuzzer.py
+  s_ba718d54c093cd::t_04ed634d099805 1-85
+scripts/c_verify.py
+  s_ba718d54c093cd::t_1fbf821ac54df5 1-15
+scripts/cverify/__init__.py
+  s_ba718d54c093cd::t_50624f3f5550c2 1-3
+scripts/cverify/checks.py
+  s_ba718d54c093cd::t_4c55959e0a3a0d 1-701
+scripts/cverify/cli.py
+  s_ba718d54c093cd::t_4427d1eb5ce0a1 1-413
+scripts/cverify/compilation.py
+  s_ba718d54c093cd::t_63ee0860aed4d7 1-188
+scripts/cverify/execution.py
+  s_ba718d54c093cd::t_d6d09a644311b9 1-235
+scripts/cverify/incremental/attribution.py
+  s_ba718d54c093cd::t_98ea0dfc1d29f8 1-184
+scripts/cverify/incremental/context.py
+  s_ba718d54c093cd::t_e062de4b13fbe1 1-151
+scripts/cverify/incremental/runner.py
+  s_ba718d54c093cd::t_5740c8ec9823e5 1-151
+scripts/cverify/incremental/snapshots.py
+  s_ba718d54c093cd::t_31a8c002990bab 1-147
+scripts/cverify/report.py
+  s_ba718d54c093cd::t_9fdac73176c725 1-196
+scripts/run_c_checks.sh
+  s_ba718d54c093cd::t_63826d7daac26d 1-11
+tests/fixtures/basic/.clang-format
+  s_ba718d54c093cd::t_8f02fde88868e8 1-5
+tests/fixtures/basic/good.c
+  s_ba718d54c093cd::t_ab9e34ca4c696d 1-14
+tests/fixtures/basic/good.cpp
+  s_ba718d54c093cd::t_033d27b8f61584 1-7
+tests/fixtures/basic/style_bad.c
+  s_ba718d54c093cd::t_94f4127e8c3669 1-5
+tests/fixtures/cmake/CMakeLists.txt
+  s_ba718d54c093cd::t_04ad062b785833 1-6
+tests/fixtures/runtime/asan_oob.c
+  s_ba718d54c093cd::t_7521defaed7c4d 1-6
+tests/fixtures/runtime/parser_fuzz.c
+  s_ba718d54c093cd::t_a6003f99f1576a 1-11
+tests/fixtures/runtime/ubsan_shift.c
+  s_ba718d54c093cd::t_eff5350bd17314 1-5
+tests/test_core.py
+  s_ba718d54c093cd::t_d6dada165ae5de 1-171
+tests/test_incremental.py
+  s_ba718d54c093cd::t_68136fa468eff1 1-124
+tests/test_incremental_execution.py
+  s_ba718d54c093cd::t_62dee3b171a7b9 1-386
+tests/test_integration.py
+  s_ba718d54c093cd::t_2a66fe5b279542 1-517
+tools/THIRD_PARTY_NOTICES.json
+  s_ba718d54c093cd::t_b1de4f1616fd4d 1-3002
+tools/manifest.json
+  s_ba718d54c093cd::t_731569287b8c09 1-3547
+tools/python/lizard-1.25.0/lizard-1.25.0.dist-info/METADATA
+  s_ba718d54c093cd::t_5ec05fe140608b 1-298
+tools/python/lizard-1.25.0/lizard-1.25.0.dist-info/RECORD
+  s_ba718d54c093cd::t_195e949e489646 1-114
+tools/python/lizard-1.25.0/lizard-1.25.0.dist-info/WHEEL
+  s_ba718d54c093cd::t_e0d7e72caa722e 1-6
+tools/python/lizard-1.25.0/lizard-1.25.0.dist-info/entry_points.txt
+  s_ba718d54c093cd::t_b0d7ed53b43ab8 1-2
+tools/python/lizard-1.25.0/lizard-1.25.0.dist-info/licenses/LICENSE.txt
+  s_ba718d54c093cd::t_bf8067989fdd9f 1-30
+tools/python/lizard-1.25.0/lizard-1.25.0.dist-info/top_level.txt
+  s_ba718d54c093cd::t_d7be0c9f2fa938 1-4
+tools/python/lizard-1.25.0/lizard.py
+  s_ba718d54c093cd::t_3891adb216f0e5 1-97
+tools/python/lizard-1.25.0/lizard_core/__init__.py
+  s_ba718d54c093cd::t_de12a08bc860d0 1-7
+tools/python/lizard-1.25.0/lizard_core/analysis.py
+  s_ba718d54c093cd::t_b085ea982c058b 1-62
+tools/python/lizard-1.25.0/lizard_core/cli.py
+  s_ba718d54c093cd::t_ca0db295917d96 1-70
+tools/python/lizard-1.25.0/lizard_core/extensions.py
+  s_ba718d54c093cd::t_5c60c44aee9d88 1-36
+tools/python/lizard-1.25.0/lizard_core/file_analyzer.py
+  s_ba718d54c093cd::t_a6da097071b1bc 1-107
+tools/python/lizard-1.25.0/lizard_core/file_discovery.py
+  s_ba718d54c093cd::t_cace878e057edc 1-114
+tools/python/lizard-1.25.0/lizard_core/file_info_builder.py
+  s_ba718d54c093cd::t_2490e03dccf42b 1-132
+tools/python/lizard-1.25.0/lizard_core/function_info.py
+  s_ba718d54c093cd::t_06b1b68a94f25c 1-156
+tools/python/lizard-1.25.0/lizard_core/options.py
+  s_ba718d54c093cd::t_224006b0c6d5fe 1-272
+tools/python/lizard-1.25.0/lizard_core/output_scheme.py
+  s_ba718d54c093cd::t_7a0f25c655e258 1-113
+tools/python/lizard-1.25.0/lizard_core/text_output.py
+  s_ba718d54c093cd::t_99d8f894fc5725 1-105
+tools/python/lizard-1.25.0/lizard_core/warning_filter.py
+  s_ba718d54c093cd::t_189a29acc4eb79 1-70
+tools/python/lizard-1.25.0/lizard_ext/__init__.py
+  s_ba718d54c093cd::t_f0fffc66435fcf 1-31
+tools/python/lizard-1.25.0/lizard_ext/auto_open.py
+  s_ba718d54c093cd::t_2c5cf0273380d2 1-36
+tools/python/lizard-1.25.0/lizard_ext/checkstyleoutput.py
+  s_ba718d54c093cd::t_fd5a2d81c26bd3 1-33
+tools/python/lizard-1.25.0/lizard_ext/cognitive_actions.py
+  s_ba718d54c093cd::t_bd1a519d471b1d 1-174
+tools/python/lizard-1.25.0/lizard_ext/cognitive_brace.py
+  s_ba718d54c093cd::t_93c38062067a31 1-239
+tools/python/lizard-1.25.0/lizard_ext/cognitive_counter.py
+  s_ba718d54c093cd::t_24e32cf3ebd785 1-165
+tools/python/lizard-1.25.0/lizard_ext/cognitive_indent.py
+  s_ba718d54c093cd::t_18ec3caffcf930 1-112
+tools/python/lizard-1.25.0/lizard_ext/cognitive_profile.py
+  s_ba718d54c093cd::t_3f63a006bd32de 1-150
+tools/python/lizard-1.25.0/lizard_ext/csvoutput.py
+  s_ba718d54c093cd::t_f6e7e5c3516bc5 1-69
+tools/python/lizard-1.25.0/lizard_ext/default_ordered_dict.py
+  s_ba718d54c093cd::t_4f7dab37087248 1-30
+tools/python/lizard-1.25.0/lizard_ext/extension_base.py
+  s_ba718d54c093cd::t_4fdf71b8c6ba65 1-12
+tools/python/lizard-1.25.0/lizard_ext/halstead_classifier.py
+  s_ba718d54c093cd::t_645ea95792fccb 1-135
+tools/python/lizard-1.25.0/lizard_ext/halstead_metrics.py
+  s_ba718d54c093cd::t_6f35a80ea703bc 1-80
+tools/python/lizard-1.25.0/lizard_ext/htmloutput.py
+  s_ba718d54c093cd::t_94b7e4e62fcf8d 1-231
+tools/python/lizard-1.25.0/lizard_ext/keywords.py
+  s_ba718d54c093cd::t_82aabc2ab59c1a 1-82
+tools/python/lizard-1.25.0/lizard_ext/lizardboolcount.py
+  s_ba718d54c093cd::t_4da4f66223d46d 1-34
+tools/python/lizard-1.25.0/lizard_ext/lizardcognitive.py
+  s_ba718d54c093cd::t_b768c3564d3849 1-96
+tools/python/lizard-1.25.0/lizard_ext/lizardcomplextags.py
+  s_ba718d54c093cd::t_3f14c0cbd3e60a 1-25
+tools/python/lizard-1.25.0/lizard_ext/lizardcpre.py
+  s_ba718d54c093cd::t_9731f926f0c917 1-37
+tools/python/lizard-1.25.0/lizard_ext/lizarddependencycount.py
+  s_ba718d54c093cd::t_372dc0dbb2894d 1-57
+tools/python/lizard-1.25.0/lizard_ext/lizarddumpcomments.py
+  s_ba718d54c093cd::t_4d0f8c5416226d 1-26
+tools/python/lizard-1.25.0/lizard_ext/lizardduplicate.py
+  s_ba718d54c093cd::t_7f8a889601c50f 1-314
+tools/python/lizard-1.25.0/lizard_ext/lizardduplicated_param_list.py
+  s_ba718d54c093cd::t_5f2b3985b43129 1-53
+tools/python/lizard-1.25.0/lizard_ext/lizardexitcount.py
+  s_ba718d54c093cd::t_ec6f33e9e043c0 1-22
+tools/python/lizard-1.25.0/lizard_ext/lizardgotocount.py
+  s_ba718d54c093cd::t_76bfa9abe2eccb 1-16
+tools/python/lizard-1.25.0/lizard_ext/lizardhalstead.py
+  s_ba718d54c093cd::t_4e813571e7a54a 1-193
+tools/python/lizard-1.25.0/lizard_ext/lizardignoreassert.py
+  s_ba718d54c093cd::t_b36a63415eb3a7 1-27
+tools/python/lizard-1.25.0/lizard_ext/lizardio.py
+  s_ba718d54c093cd::t_6d67f56b2450a1 1-92
+tools/python/lizard-1.25.0/lizard_ext/lizardmccabe.py
+  s_ba718d54c093cd::t_a6b74b98e097d7 1-41
+tools/python/lizard-1.25.0/lizard_ext/lizardmodified.py
+  s_ba718d54c093cd::t_54e69e9ea3ed60 1-42
+tools/python/lizard-1.25.0/lizard_ext/lizardnd.py
+  s_ba718d54c093cd::t_77da029f90ae16 1-216
+tools/python/lizard-1.25.0/lizard_ext/lizardnonstrict.py
+  s_ba718d54c093cd::t_7c0d18f8cc5378 1-14
+tools/python/lizard-1.25.0/lizard_ext/lizardns.py
+  s_ba718d54c093cd::t_ce9d2a71c2b6a2 1-188
+tools/python/lizard-1.25.0/lizard_ext/lizardoutside.py
+  s_ba718d54c093cd::t_4a871b3c69b042 1-12
+tools/python/lizard-1.25.0/lizard_ext/lizardstatementcount.py
+  s_ba718d54c093cd::t_cb9df33327b2c4 1-32
+tools/python/lizard-1.25.0/lizard_ext/lizardwordcount.py
+  s_ba718d54c093cd::t_458986b41d4157 1-231
+tools/python/lizard-1.25.0/lizard_ext/version.py
+  s_ba718d54c093cd::t_c990a2f7552a2c 1-6
+tools/python/lizard-1.25.0/lizard_ext/xmloutput.py
+  s_ba718d54c093cd::t_a09986fd77e06e 1-167
+tools/python/lizard-1.25.0/lizard_languages/__init__.py
+  s_ba718d54c093cd::t_3dd4f586910038 1-71
+tools/python/lizard-1.25.0/lizard_languages/clike.py
+  s_ba718d54c093cd::t_b4625c054dae5a 1-149
+tools/python/lizard-1.25.0/lizard_languages/clike_states.py
+  s_ba718d54c093cd::t_8f6cf33c087294 1-250
+tools/python/lizard-1.25.0/lizard_languages/cobol.py
+  s_ba718d54c093cd::t_df91fb71323e10 1-180
+tools/python/lizard-1.25.0/lizard_languages/cobol_states.py
+  s_ba718d54c093cd::t_f905d6ba410090 1-174
+tools/python/lizard-1.25.0/lizard_languages/code_reader.py
+  s_ba718d54c093cd::t_6c6fb15d381acc 1-171
+tools/python/lizard-1.25.0/lizard_languages/csharp.py
+  s_ba718d54c093cd::t_91e0875d24f2aa 1-81
+tools/python/lizard-1.25.0/lizard_languages/dart.py
+  s_ba718d54c093cd::t_1149289525edbc 1-234
+tools/python/lizard-1.25.0/lizard_languages/erlang.py
+  s_ba718d54c093cd::t_653fd34d53e256 1-124
+tools/python/lizard-1.25.0/lizard_languages/fortran.py
+  s_ba718d54c093cd::t_62da564437d8c9 1-76
+tools/python/lizard-1.25.0/lizard_languages/fortran_states.py
+  s_ba718d54c093cd::t_9c59b8eeeab754 1-232
+tools/python/lizard-1.25.0/lizard_languages/gdscript.py
+  s_ba718d54c093cd::t_4dbb2e44665b4b 1-27
+tools/python/lizard-1.25.0/lizard_languages/go.py
+  s_ba718d54c093cd::t_e01c463f0fe032 1-119
+tools/python/lizard-1.25.0/lizard_languages/go_function.py
+  s_ba718d54c093cd::t_6b169d2cedf0ad 1-135
+tools/python/lizard-1.25.0/lizard_languages/golike.py
+  s_ba718d54c093cd::t_a922917774da18 1-94
+tools/python/lizard-1.25.0/lizard_languages/java.py
+  s_ba718d54c093cd::t_bae8970d6ec245 1-225
+tools/python/lizard-1.25.0/lizard_languages/java_body_states.py
+  s_ba718d54c093cd::t_8e1b79b20aafc6 1-102
+tools/python/lizard-1.25.0/lizard_languages/javascript.py
+  s_ba718d54c093cd::t_db7df0e598eb85 1-16
+tools/python/lizard-1.25.0/lizard_languages/javascript_bindings.py
+  s_ba718d54c093cd::t_f7ec0091913c52 1-204
+tools/python/lizard-1.25.0/lizard_languages/javascript_functions.py
+  s_ba718d54c093cd::t_057e4c6d0024d8 1-208
+tools/python/lizard-1.25.0/lizard_languages/javascript_objects.py
+  s_ba718d54c093cd::t_af8036ccb61e9d 1-154
+tools/python/lizard-1.25.0/lizard_languages/javascript_templates.py
+  s_ba718d54c093cd::t_dd48988e27fe2c 1-150
+tools/python/lizard-1.25.0/lizard_languages/js_style_regex_context.py
+  s_ba718d54c093cd::t_6774bdb850acc9 1-114
+tools/python/lizard-1.25.0/lizard_languages/js_style_regex_expression.py
+  s_ba718d54c093cd::t_8387f8c0990ea1 1-67
+tools/python/lizard-1.25.0/lizard_languages/js_style_regex_forward_scan.py
+  s_ba718d54c093cd::t_ceb4c665cce200 1-225
+tools/python/lizard-1.25.0/lizard_languages/js_style_regex_keyword_scan.py
+  s_ba718d54c093cd::t_d32f0bda36fdc9 1-142
+tools/python/lizard-1.25.0/lizard_languages/kotlin.py
+  s_ba718d54c093cd::t_6274bb7c489023 1-137
+tools/python/lizard-1.25.0/lizard_languages/lua.py
+  s_ba718d54c093cd::t_857f40d0821945 1-57
+tools/python/lizard-1.25.0/lizard_languages/objc.py
+  s_ba718d54c093cd::t_1fc89c2f84a07b 1-86
+tools/python/lizard-1.25.0/lizard_languages/perl.py
+  s_ba718d54c093cd::t_c2d3918aa71d66 1-333
+tools/python/lizard-1.25.0/lizard_languages/php.py
+  s_ba718d54c093cd::t_1368cffd8eca51 1-46
+tools/python/lizard-1.25.0/lizard_languages/php_states.py
+  s_ba718d54c093cd::t_7356ee2d11db21 1-237
+tools/python/lizard-1.25.0/lizard_languages/plsql.py
+  s_ba718d54c093cd::t_0e60123e120c5a 1-422
+tools/python/lizard-1.25.0/lizard_languages/python.py
+  s_ba718d54c093cd::t_f35ad27a8e8f9a 1-197
+tools/python/lizard-1.25.0/lizard_languages/python_structure.py
+  s_ba718d54c093cd::t_a1932a249fa2b9 1-131
+tools/python/lizard-1.25.0/lizard_languages/python_tokens.py
+  s_ba718d54c093cd::t_5814f6413be2ea 1-151
+tools/python/lizard-1.25.0/lizard_languages/r.py
+  s_ba718d54c093cd::t_61b5639db6cf9e 1-293
+tools/python/lizard-1.25.0/lizard_languages/ruby.py
+  s_ba718d54c093cd::t_0b38fc4ec9a103 1-65
+tools/python/lizard-1.25.0/lizard_languages/rubylike.py
+  s_ba718d54c093cd::t_e42b870c3d3132 1-109
+tools/python/lizard-1.25.0/lizard_languages/rust.py
+  s_ba718d54c093cd::t_d74adccb2786c8 1-107
+tools/python/lizard-1.25.0/lizard_languages/scala.py
+  s_ba718d54c093cd::t_1ded8559327b77 1-49
+tools/python/lizard-1.25.0/lizard_languages/script_language.py
+  s_ba718d54c093cd::t_995f46879dd5e2 1-34
+tools/python/lizard-1.25.0/lizard_languages/solidity.py
+  s_ba718d54c093cd::t_70d48cb33e4754 1-27
+tools/python/lizard-1.25.0/lizard_languages/st.py
+  s_ba718d54c093cd::t_a135bc864ba5c8 1-143
+tools/python/lizard-1.25.0/lizard_languages/swift.py
+  s_ba718d54c093cd::t_d018fa2751781a 1-214
+tools/python/lizard-1.25.0/lizard_languages/swift_literals.py
+  s_ba718d54c093cd::t_c7be538e056a2f 1-93
+tools/python/lizard-1.25.0/lizard_languages/tnsdl.py
+  s_ba718d54c093cd::t_65dcbaec2ed2a2 1-97
+tools/python/lizard-1.25.0/lizard_languages/token_pattern.py
+  s_ba718d54c093cd::t_89444f195b1368 1-93
+tools/python/lizard-1.25.0/lizard_languages/tsx.py
+  s_ba718d54c093cd::t_3ba51230d9ad3f 1-178
+tools/python/lizard-1.25.0/lizard_languages/ttcn.py
+  s_ba718d54c093cd::t_85fca159293b7e 1-64
+tools/python/lizard-1.25.0/lizard_languages/typescript.py
+  s_ba718d54c093cd::t_d2305dbf31ef00 1-242
+tools/python/lizard-1.25.0/lizard_languages/typescript_declarations.py
+  s_ba718d54c093cd::t_0b85599ebf0fd0 1-173
+tools/python/lizard-1.25.0/lizard_languages/typescript_signatures.py
+  s_ba718d54c093cd::t_23778b607ee0cc 1-57
+tools/python/lizard-1.25.0/lizard_languages/typescript_states.py
+  s_ba718d54c093cd::t_e67b0fd1808301 1-250
+tools/python/lizard-1.25.0/lizard_languages/typescript_type_annotation.py
+  s_ba718d54c093cd::t_0f9000aea5ff0c 1-97
+tools/python/lizard-1.25.0/lizard_languages/vue.py
+  s_ba718d54c093cd::t_58373afcaffa1b 1-41
+tools/python/lizard-1.25.0/lizard_languages/zig.py
+  s_ba718d54c093cd::t_682a06daac3871 1-31
+tools/python/lizard-package.json
+  s_ba718d54c093cd::t_546181b809281b 1-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "48ffe3529a3295986e0981d123c0c9afb380706b",
+  "prompts": {},
+  "sessions": {
+    "s_ba718d54c093cd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e1f1-8bb8-7f50-9459-398ddc01be3c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ruiwarn <162423525+ruiwarn@users.noreply.github.com>"
+    }
+  }
+}
