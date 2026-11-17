@@ -1,0 +1,57 @@
+name: Package checks
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install build
+      - run: python -m build
+      - name: Install wheel
+        shell: python
+        run: |
+          import glob
+          import subprocess
+          import sys
+          subprocess.run([sys.executable, "-m", "pip", "install", glob.glob("dist/*.whl")[0]], check=True)
+      - name: Verify installed resources and missing-tool errors
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          import tempfile
+          import unittest
+          import openembeddlint
+          root = Path(openembeddlint.__file__).parent
+          for name in ("config.schema.json", "defaults/.clang-tidy", "tools/manifest.json", "tests/fixtures/basic/.clang-format"):
+              assert (root / name).is_file(), name
+          assert not (root / "defaults/misra-c2012-rule-texts.txt").exists()
+          subprocess.run([sys.executable, str(root / "tools/python/lizard-1.25.0/lizard.py"), str(root / "tests/fixtures/basic/good.c")], check=True)
+          suite = unittest.defaultTestLoader.discover(str(root / "tests"), pattern="test_installation.py")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          assert result.wasSuccessful() and result.testsRun > 0
+          with tempfile.TemporaryDirectory() as directory:
+              environment = dict(os.environ, OPENEMBEDDLINT_TOOLS_DIR=directory)
+              result = subprocess.run(["openembeddlint", "--doctor", "--detail"], cwd=directory, env=environment, capture_output=True, text=True, check=False)
+              document = json.loads(result.stdout)
+              assert result.returncode == 2, document
+              assert document["summary"]["complete"] is False, document
+              assert all(check["status"] == "ERROR" for check in document["checks"]), document
+      - name: Verify console entry
+        run: openembeddlint --version

@@ -1,0 +1,14 @@
+{
+  "InheritParentConfig": false,
+  "Checks": "-*,bugprone-*,clang-analyzer-*,readability-function-cognitive-complexity,readability-function-size,-bugprone-reserved-identifier,-bugprone-easily-swappable-parameters",
+  "WarningsAsErrors": "readability-function-cognitive-complexity,readability-function-size,bugprone-branch-clone",
+  "CheckOptions": {
+    "readability-function-cognitive-complexity.Threshold": "25",
+    "readability-function-size.StatementThreshold": "100",
+    "readability-function-size.LineThreshold": "200",
+    "readability-function-size.BranchThreshold": "30",
+    "readability-function-size.ParameterThreshold": "8",
+    "readability-function-size.NestingThreshold": "5",
+    "readability-function-size.VariableThreshold": "30"
+  }
+}

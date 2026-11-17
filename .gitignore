@@ -1,0 +1,14 @@
+/tools/platforms/
+/tools/bootstrap/
+/tools/sources/
+/tools/notices/
+__pycache__/
+*.py[cod]
+.DS_Store
+/artifacts/
+/reports/
+/dist/
+/build/
+/*.egg-info/
+misra-rule-texts*.txt
+*misra*rule*texts*.txt

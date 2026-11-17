@@ -1,0 +1,38 @@
+{
+  "schema_version": 2,
+  "static": {
+    "cppcheck_enable": "warning,performance,portability,style",
+    "cppcheck_defines": [],
+    "cppcheck_includes": [],
+    "misra_c2012": false,
+    "extra_args": [],
+    "allow_without_compdb": false
+  },
+  "format": {
+    "enabled": true,
+    "style": "file",
+    "config": null,
+    "required": false
+  },
+  "cyclomatic": {
+    "enabled": true,
+    "required": false,
+    "policy": "blocking",
+    "metric_policies": {
+      "ccn": "blocking",
+      "nloc": "blocking",
+      "length": "blocking"
+    },
+    "ccn_threshold": 30,
+    "nloc_threshold": 100,
+    "length_threshold": 1000
+  },
+  "exclude_directories": [
+    ".git/"
+  ],
+  "commands": [],
+  "suppressions": [],
+  "coverage": null,
+  "fuzz": [],
+  "requirements": []
+}

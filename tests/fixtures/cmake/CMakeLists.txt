@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.16)
+project(cverify_host_fixture C)
+set(CMAKE_C_STANDARD 11)
+add_executable(host_tests ../basic/good.c)
+enable_testing()
+add_test(NAME host_tests COMMAND host_tests)

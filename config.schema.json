@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "C-Verify project configuration",
+  "type": "object",
+  "required": ["schema_version"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": 2},
+    "static": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cppcheck_enable": {"type": "string"},
+        "cppcheck_defines": {"type": "array", "items": {"type": "string"}},
+        "cppcheck_includes": {"type": "array", "items": {"type": "string"}},
+        "misra_c2012": {"type": "boolean"},
+        "extra_args": {"type": "array", "items": {"type": "string"}},
+        "allow_without_compdb": {"type": "boolean"},
+        "compile_commands": {"type": "string"}
+      }
+    },
+    "format": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "style": {"const": "file"},
+        "config": {"type": ["string", "null"]},
+        "required": {"type": "boolean"}
+      }
+    },
+    "exclude_directories": {"type": "array", "items": {"type": "string"}},
+    "cyclomatic": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "required": {"type": "boolean"},
+        "policy": {"enum": ["report_only", "blocking"]},
+        "metric_policies": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ccn": {"enum": ["report_only", "blocking"]},
+            "nloc": {"enum": ["report_only", "blocking"]},
+            "length": {"enum": ["report_only", "blocking"]}
+          }
+        },
+        "ccn_threshold": {"type": "integer", "minimum": 1},
+        "nloc_threshold": {"type": "integer", "minimum": 1},
+        "length_threshold": {"type": "integer", "minimum": 1}
+      }
+    },
+    "commands": {"$ref": "#/definitions/commands"},
+    "suppressions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check", "reason"],
+        "properties": {
+          "check": {"type": "string", "minLength": 1},
+          "path": {"type": "string"},
+          "message": {"type": "string"},
+          "reason": {"type": "string", "minLength": 1},
+          "needs_manual_confirmation": {"type": "boolean"}
+        }
+      }
+    },
+    "coverage": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["binary", "profraw"],
+      "properties": {
+        "id": {"type": "string"},
+        "required": {"type": "boolean"},
+        "binary": {"type": "string"},
+        "profraw": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "profdata": {"type": "string"},
+        "sources": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "fuzz": {"$ref": "#/definitions/commands"},
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "description": {"type": "string"},
+          "tests": {"type": "array", "items": {"type": "string"}},
+          "manual": {"type": "string"}
+        }
+      }
+    }
+  },
+  "definitions": {
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "argv"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+$"},
+          "kind": {"enum": ["build", "test", "fuzz", "project_rule"]},
+          "argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+          "cwd": {"type": "string"},
+          "env": {"type": "object", "additionalProperties": {"type": "string"}},
+          "timeout_s": {"type": "number", "exclusiveMinimum": 0},
+          "required": {"type": "boolean"},
+          "evidence": {"type": "array", "items": {"type": "string"}},
+          "requirements": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

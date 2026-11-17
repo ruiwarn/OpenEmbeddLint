@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openembeddlint"
+dynamic = ["version"]
+description = "Deterministic C/C++ verification and incremental quality gates for embedded projects"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["Pygments==2.19.1", "pathspec==0.12.1"]
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY.md", "tools/python/lizard-1.25.0/lizard-1.25.0.dist-info/licenses/LICENSE.txt"]
+authors = [{name = "ruiwarn"}]
+keywords = ["embedded", "lint", "clang-tidy", "cppcheck", "misra", "static-analysis"]
+classifiers = [
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C",
+    "Programming Language :: C++",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.urls]
+Homepage = "https://github.com/ruiwarn/OpenEmbeddLint"
+Issues = "https://github.com/ruiwarn/OpenEmbeddLint/issues"
+
+[project.scripts]
+openembeddlint = "openembeddlint.scripts.cverify.cli:main"
+openembeddlint-tools = "openembeddlint.scripts.manage_tools:main"
+
+[tool.setuptools]
+packages = ["openembeddlint", "openembeddlint.scripts", "openembeddlint.scripts.cverify", "openembeddlint.scripts.cverify.incremental"]
+package-dir = {openembeddlint = "."}
+include-package-data = false
+
+[tool.setuptools.package-data]
+openembeddlint = ["SKILL.md", "README.zh-CN.md", "config.schema.json", "defaults/*.json", "defaults/.clang-tidy", "references/*.md", "tests/*.py", "tests/fixtures/**/*", "tests/fixtures/basic/.clang-format", "tools/manifest.json", "tools/THIRD_PARTY_NOTICES.json", "tools/python/**/*.py", "tools/python/**/METADATA", "tools/python/**/LICENSE*", "tools/python/lizard-package.json"]
+"openembeddlint.scripts" = ["*.sh"]
+
+[tool.setuptools.dynamic]
+version = {attr = "openembeddlint.scripts.cverify.__version__"}

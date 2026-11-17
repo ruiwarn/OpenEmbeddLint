@@ -1,0 +1,9 @@
+{
+  "distribution_version": "1.25.0",
+  "reported_version": "1.25.0",
+  "module": "lizard.py",
+  "wheel": "lizard-1.25.0-py2.py3-none-any.whl",
+  "source_url": "https://files.pythonhosted.org/packages/90/f9/93b0c4d4d64eb5f126419cee90580b75ee917c4fabe0415c8214907a2bfb/lizard-1.25.0-py2.py3-none-any.whl",
+  "sha256": "e82fc8ad93a4c9025f7dad9428bdcfaa8caedfb4358a8ea5860de35a3794626f",
+  "license": "MIT"
+}
