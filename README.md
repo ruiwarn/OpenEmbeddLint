@@ -42,10 +42,13 @@ Source installation:
 ```sh
 git clone https://github.com/ruiwarn/OpenEmbeddLint.git
 cd OpenEmbeddLint
-pipx install .
+pipx install --editable .
 openembeddlint-tools install
 openembeddlint --doctor
 ```
+
+This source installation links the commands to the checkout, so `git pull --ff-only`
+updates their implementation. Reinstall when dependencies or package metadata change.
 
 Without pipx, install the wheel or source in a Python virtual environment and
 use that environment's commands. Do not replace the system Python.

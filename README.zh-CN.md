@@ -39,10 +39,13 @@ CLI 安装包体积较小。独立的工具安装器使用随包清单中的准�
 ```sh
 git clone https://github.com/ruiwarn/OpenEmbeddLint.git
 cd OpenEmbeddLint
-pipx install .
+pipx install --editable .
 openembeddlint-tools install
 openembeddlint --doctor
 ```
+
+源码安装会将命令链接到当前仓库，后续 `git pull --ff-only` 即可更新实现。
+依赖或打包元数据变化时，需要重新安装。
 
 不用 pipx 时，将 wheel 或源码安装到 Python 虚拟环境，使用该环境的命令，
 不需要替换系统 Python。
