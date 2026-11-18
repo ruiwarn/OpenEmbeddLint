@@ -23,7 +23,7 @@ Cppcheck、可选的 MISRA-C:2012 检查、clang-format 和 Lizard。
 [pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html)，然后执行：
 
 ```sh
-pipx install https://github.com/ruiwarn/OpenEmbeddLint/releases/download/v3.0.0/openembeddlint-3.0.0-py3-none-any.whl
+pipx install https://github.com/ruiwarn/OpenEmbeddLint/releases/download/v3.0.1/openembeddlint-3.0.1-py3-none-any.whl
 pipx ensurepath
 openembeddlint --version
 openembeddlint-tools install
@@ -92,6 +92,9 @@ openembeddlint --doctor
    注意下文的 macOS SDK 要求，缺少工具或平台条件时不能报告检查通过。
 7. 在源码仓库外执行下列命令，报告命令位置、版本、doctor 结果、自测数量、跳过项及失败。
    另外确认 AI 客户端能发现技能，必要时重新加载客户端。克隆成功不代表安装可用。
+8. 检查用户主目录下是否有可选的 `misra-c2012-rule-texts.txt`。没有时，明确提示用户
+   完整的目标绝对路径，请其有规则文本时将文件放到这里。继续完成安装：没有文本仍能
+   检测违规并显示规则编号。不要代为下载原文，也不要放进工程或技能目录。
 
 ```sh
 openembeddlint --version
@@ -193,8 +196,15 @@ openembeddlint --project-root . --git-modified --misra-c2012
 带理由、限定范围的屏蔽继续保留审计记录。
 
 公开版本不分发 MISRA 规则原文，不提供原文也能检测并显示规则编号。如有单独授权的文本，
-将 `misra-c2012-rule-texts.txt` 放在上述系统 OpenEmbeddLint 数据目录中、与 `tools/` 同级；
-或将 `OPENEMBEDDLINT_MISRA_RULE_TEXTS` 设为其绝对路径。
+将 `misra-c2012-rule-texts.txt` 直接放在自己的用户主目录：
+
+| 系统 | 文件位置 |
+|---|---|
+| Windows | `%USERPROFILE%\misra-c2012-rule-texts.txt` |
+| Linux / macOS | `~/misra-c2012-rule-texts.txt` |
+
+从 3.0.0 升级时，将原先 OpenEmbeddLint 数据目录中的可选文本移到这个位置。
+也可以将 `OPENEMBEDDLINT_MISRA_RULE_TEXTS` 设为一个已存在文件的绝对路径，显式配置优先。
 框架自动为所有工程加载，用到时复制进仓库外的运行产物，并在增量检查中记录指纹，
 工程不需要配置文本路径。
 

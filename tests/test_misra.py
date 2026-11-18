@@ -26,9 +26,9 @@ class MisraTests(unittest.TestCase):
         self.root = Path(self.temporary.name) / "project"
         self.root.mkdir()
         self.toolchain = Toolchain(SKILL_DIR)
-        self.user_data = patch("cverify.installation.user_data_directory", return_value=Path(self.temporary.name) / "user-data")
-        self.user_data.start()
-        self.addCleanup(self.user_data.stop)
+        self.user_home = patch("cverify.installation.Path.home", return_value=Path(self.temporary.name) / "user-home")
+        self.user_home.start()
+        self.addCleanup(self.user_home.stop)
         self.environment = patch.dict(os.environ, {"OPENEMBEDDLINT_MISRA_RULE_TEXTS": "", "OPENEMBEDDLINT_TOOLS_DIR": str(self.toolchain.root.parent)})
         self.environment.start()
         self.addCleanup(self.environment.stop)
@@ -83,24 +83,26 @@ class MisraTests(unittest.TestCase):
         self.assertFalse(document["summary"]["complete"])
         self.assertTrue(any("OPENEMBEDDLINT_MISRA_RULE_TEXTS" in check.get("reason", "") for check in document["checks"]))
 
-    def test_private_texts_support_unicode_and_spaces(self):
+    def test_home_texts_support_unicode_and_spaces(self):
         directory = Path(self.temporary.name) / "技能副本 with spaces"
-        texts = directory / "rule-texts.txt"
+        texts = directory / "misra-c2012-rule-texts.txt"
         texts.parent.mkdir(parents=True)
         texts.write_text("Appendix A Summary of guidelines\nRule 15.1 Advisory\nPrefer structured control flow instead of goto.\n", encoding="utf-8")
-        with patch.dict(os.environ, {"OPENEMBEDDLINT_MISRA_RULE_TEXTS": str(texts)}):
+        with patch("cverify.installation.Path.home", return_value=directory):
             code, document = self.scan("--misra-c2012")
         self.assertEqual(code, 1, document)
         issues = [issue for check in document["checks"] for issue in check["issues"] if issue["rule"] == "misra-c2012-15.1"]
         self.assertEqual(len(issues), 1)
         self.assertIn("structured control flow", issues[0]["message"])
         self.assertEqual(issues[0]["severity"], "error")
+        check = next(check for check in document["checks"] if check["id"] == "cppcheck")
+        self.assertEqual(check["metrics"]["misra_c2012"]["rule_texts"], str(texts.resolve()))
         staged = Path(document["report_path"]).parent / "logs/misra-rule-texts.txt"
         self.assertEqual(staged.read_bytes(), texts.read_bytes())
 
     def test_private_text_changes_invalidate_incremental_verification(self):
         directory = Path(self.temporary.name) / "skill copy"
-        texts = directory / "rule-texts.txt"
+        texts = directory / "misra-c2012-rule-texts.txt"
         texts.parent.mkdir(parents=True)
         texts.write_text("Appendix A Summary of guidelines\nRule 15.1 Advisory\nPrefer structured control flow instead of goto.\n", encoding="utf-8")
         (self.root / "a.c").write_text(GOOD, encoding="utf-8")
@@ -113,7 +115,7 @@ class MisraTests(unittest.TestCase):
                 result = project_report(*args)
                 texts.write_bytes(texts.read_bytes() + b"\n")
                 return result
-            with patch.dict(os.environ, {"OPENEMBEDDLINT_MISRA_RULE_TEXTS": str(texts)}), patch("cverify.cli.project_report", side_effect=changing_scan):
+            with patch("cverify.installation.Path.home", return_value=directory), patch("cverify.cli.project_report", side_effect=changing_scan):
                 code, document = self.scan("--misra-c2012", "--baseline", "HEAD")
         self.assertEqual(code, 3, document)
         self.assertFalse(document["gate"]["complete"])

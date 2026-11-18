@@ -24,7 +24,7 @@ Requires Python 3.10+. Incremental gates also require Git. Install
 [pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html), then:
 
 ```sh
-pipx install https://github.com/ruiwarn/OpenEmbeddLint/releases/download/v3.0.0/openembeddlint-3.0.0-py3-none-any.whl
+pipx install https://github.com/ruiwarn/OpenEmbeddLint/releases/download/v3.0.1/openembeddlint-3.0.1-py3-none-any.whl
 pipx ensurepath
 openembeddlint --version
 openembeddlint-tools install
@@ -108,6 +108,11 @@ For the agent carrying out that request:
    locations, version, doctor results, self-test counts/skips and failures. Verify
    the AI client's skill discovery separately, reloading the client if needed.
    A successful clone alone does not establish a working installation.
+8. Check for optional `misra-c2012-rule-texts.txt` directly in the user's home
+   directory. If absent, tell the user its exact absolute destination and ask
+   them to put their separately obtained guideline text there when available.
+   Continue installation: detection and rule IDs work without this text. Do not
+   download the text or place it in a project or skill directory.
 
 ```sh
 openembeddlint --version
@@ -223,10 +228,19 @@ in incremental comparison. Scoped, reasoned suppressions remain auditable.
 
 MISRA guideline text is not redistributed. Detection and rule IDs work without
 it. If you have separately authorized text, put `misra-c2012-rule-texts.txt`
-directly in the OS-specific OpenEmbeddLint data directory above `tools/`, or
-set `OPENEMBEDDLINT_MISRA_RULE_TEXTS` to its absolute path. It loads automatically
-for all projects, is copied into external artifacts when used, and is fingerprinted
-during incremental verification. Projects do not configure rule-text paths.
+directly in your home directory:
+
+| OS | File |
+|---|---|
+| Windows | `%USERPROFILE%\misra-c2012-rule-texts.txt` |
+| Linux / macOS | `~/misra-c2012-rule-texts.txt` |
+
+When upgrading from 3.0.0, move the optional file from the OpenEmbeddLint data
+directory to this location. Alternatively, set `OPENEMBEDDLINT_MISRA_RULE_TEXTS`
+to an existing absolute file path; this explicit setting takes precedence.
+The text loads automatically for all projects, is copied into external artifacts
+when used, and is fingerprinted during incremental verification. Projects do not
+configure rule-text paths.
 
 ## AI skills and development
 

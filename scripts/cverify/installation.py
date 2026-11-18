@@ -29,7 +29,7 @@ def misra_rule_texts():
         if not path.is_absolute() or not path.is_file():
             raise ValueError("OPENEMBEDDLINT_MISRA_RULE_TEXTS must name an existing absolute rule-text file")
         return path.resolve()
-    path = user_data_directory() / "misra-c2012-rule-texts.txt"
+    path = Path.home() / "misra-c2012-rule-texts.txt"
     if path.exists() and not path.is_file():
         raise ValueError("local MISRA rule texts path is not a file: " + str(path))
     return path.resolve()

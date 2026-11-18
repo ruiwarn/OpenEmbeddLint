@@ -63,11 +63,29 @@ class InstallationTests(unittest.TestCase):
     def test_default_private_text_file_is_optional_and_discovered_automatically(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with patch.dict(os.environ, {"OPENEMBEDDLINT_MISRA_RULE_TEXTS": ""}), patch("cverify.installation.user_data_directory", return_value=root):
+            with patch.dict(os.environ, {"OPENEMBEDDLINT_MISRA_RULE_TEXTS": ""}), patch("cverify.installation.Path.home", return_value=root):
                 path = misra_rule_texts()
+                self.assertEqual(path, (root / "misra-c2012-rule-texts.txt").resolve())
                 self.assertFalse(path.exists())
                 path.write_text("local authorized text", encoding="utf-8")
                 self.assertEqual(misra_rule_texts(), path)
+
+    def test_explicit_texts_take_precedence_over_the_home_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "misra-c2012-rule-texts.txt").write_text("home text", encoding="utf-8")
+            override = root / "override.txt"
+            override.write_text("selected text", encoding="utf-8")
+            with patch.dict(os.environ, {"OPENEMBEDDLINT_MISRA_RULE_TEXTS": str(override)}), patch("cverify.installation.Path.home", return_value=root):
+                self.assertEqual(misra_rule_texts(), override.resolve())
+
+    def test_a_directory_at_the_default_text_path_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "misra-c2012-rule-texts.txt").mkdir()
+            with patch.dict(os.environ, {"OPENEMBEDDLINT_MISRA_RULE_TEXTS": ""}), patch("cverify.installation.Path.home", return_value=root):
+                with self.assertRaisesRegex(ValueError, "not a file"):
+                    misra_rule_texts()
 
 
 if __name__ == "__main__":
