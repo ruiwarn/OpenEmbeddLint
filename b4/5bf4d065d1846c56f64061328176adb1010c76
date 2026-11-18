@@ -1,0 +1,21 @@
+.gitignore
+  s_ba718d54c093cd::t_8ac743699895e1 1
+.github/workflows/package.yml
+  s_ba718d54c093cd::t_8ac743699895e1 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b45bf4d065d1846c56f64061328176adb1010c76",
+  "prompts": {},
+  "sessions": {
+    "s_ba718d54c093cd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e1f1-8bb8-7f50-9459-398ddc01be3c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ruiwarn <162423525+ruiwarn@users.noreply.github.com>"
+    }
+  }
+}
