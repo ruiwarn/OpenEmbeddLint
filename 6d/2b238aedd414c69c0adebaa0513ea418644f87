@@ -1,0 +1,34 @@
+references/configuration.md
+  s_ba718d54c093cd::t_e27bff7366156f 72
+tests/test_misra.py
+  s_ba718d54c093cd::t_e27bff7366156f 29-31,86,88,91,98-99,105,118
+README.zh-CN.md
+  s_ba718d54c093cd::t_e27bff7366156f 26,95-97,199-207
+scripts/cverify/installation.py
+  s_ba718d54c093cd::t_e27bff7366156f 32
+README.md
+  s_ba718d54c093cd::t_e27bff7366156f 27,111-115,231-243
+SKILL.md
+  s_ba718d54c093cd::t_e27bff7366156f 68
+scripts/cverify/__init__.py
+  s_ba718d54c093cd::t_e27bff7366156f 3
+tests/test_installation.py
+  s_ba718d54c093cd::t_e27bff7366156f 66,68,73-88
+  s_ba718d54c093cd::t_a5b4248420c230 89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "6d2b238aedd414c69c0adebaa0513ea418644f87",
+  "prompts": {},
+  "sessions": {
+    "s_ba718d54c093cd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e1f1-8bb8-7f50-9459-398ddc01be3c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ruiwarn <162423525+ruiwarn@users.noreply.github.com>"
+    }
+  }
+}
