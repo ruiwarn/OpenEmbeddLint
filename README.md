@@ -21,10 +21,11 @@ trust input: review them before running an unfamiliar repository.
 ## Install
 
 Requires Python 3.10+. Incremental gates also require Git. Install
-[pipx](https://pipx.pypa.io/stable/installation/), then:
+[pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html), then:
 
 ```sh
 pipx install https://github.com/ruiwarn/OpenEmbeddLint/releases/download/v3.0.0/openembeddlint-3.0.0-py3-none-any.whl
+pipx ensurepath
 openembeddlint --version
 openembeddlint-tools install
 openembeddlint --doctor
@@ -43,6 +44,7 @@ Source installation:
 git clone https://github.com/ruiwarn/OpenEmbeddLint.git
 cd OpenEmbeddLint
 pipx install --editable .
+pipx ensurepath
 openembeddlint-tools install
 openembeddlint --doctor
 ```
@@ -51,7 +53,74 @@ This source installation links the commands to the checkout, so `git pull --ff-o
 updates their implementation. Reinstall when dependencies or package metadata change.
 
 Without pipx, install the wheel or source in a Python virtual environment and
-use that environment's commands. Do not replace the system Python.
+expose that environment's commands in the user bin directory. Do not replace the
+system Python. pipx has its own Python requirements; use a virtual environment
+directly if the available Python is supported here but not by pipx.
+If commands are not yet discoverable after `pipx ensurepath`, open a new terminal
+so it inherits the updated PATH.
+
+## AI-assisted installation
+
+Give a local coding agent this request; a repository link alone is not an
+installation instruction:
+
+> Install https://github.com/ruiwarn/OpenEmbeddLint on this machine for my current
+> user and AI coding client. Follow the README's AI-assisted installation steps.
+> Install the user-level skill, expose both CLI commands globally for my user,
+> download any missing pinned native tools, and verify the installation. Reuse
+> existing installations and report anything you could not verify.
+
+For the agent carrying out that request:
+
+1. Identify the target machine, OS/native architecture, Python 3.10+, Git and AI
+   client. You need local file access, shell execution and download access. A
+   cloud session may only install into its own environment; do not describe that
+   as an installation on the user's computer. Install missing prerequisites from
+   their official sources within the user's authorization.
+2. Use the client's configured **user-level** skill directory. For local
+   [Codex](https://learn.chatgpt.com/docs/build-skills), use
+   `~/.agents/skills/openembeddlint`. For local
+   [Claude Code](https://code.claude.com/docs/en/skills), use
+   `~/.claude/skills/openembeddlint`; it can link to the same canonical checkout
+   with a symlink or a Windows directory junction. For other clients, verify their
+   documented skill location and support. Do not create duplicate source copies.
+3. Clone `https://github.com/ruiwarn/OpenEmbeddLint.git` into the resolved absolute
+   skill directory. If it exists, inspect its Git origin and working tree first;
+   use `git pull --ff-only` only on a clean checkout from this repository.
+   Preserve local edits and investigate directory or installation conflicts.
+4. Reuse a working CLI installation bound to that checkout. Otherwise install
+   with `pipx install --editable "<absolute-skill-dir>"`, then `pipx ensurepath`;
+   use a dedicated virtual environment and user-bin launchers if pipx is
+   unavailable. Quote actual paths and expose **both** `openembeddlint` and
+   `openembeddlint-tools`. Editable installs follow source updates; reinstall
+   when dependencies or package metadata change.
+5. Locate the installed commands with `Get-Command openembeddlint` in PowerShell
+   or `command -v openembeddlint` in a POSIX shell, and check the tools command too.
+   Refresh the current process PATH or use verified absolute CLI paths until a
+   new terminal inherits the user PATH. Use the CLI for checks; the controlled
+   source-entry exceptions are described in [SKILL.md](SKILL.md).
+6. Run `openembeddlint-tools install`. It selects the native platform and exact
+   URLs, versions and hashes in [tools/manifest.json](tools/manifest.json), reuses
+   valid tools and reports incomplete installations. Do not substitute latest
+   versions or arbitrary analyzers on PATH. Account for the macOS SDK prerequisite
+   below; do not claim unavailable tool or platform checks passed.
+7. From outside a source repository, run the commands below. Report command
+   locations, version, doctor results, self-test counts/skips and failures. Verify
+   the AI client's skill discovery separately, reloading the client if needed.
+   A successful clone alone does not establish a working installation.
+
+```sh
+openembeddlint --version
+openembeddlint --doctor --detail
+openembeddlint --self-test --detail --timeout 600
+```
+
+Installation does not require changes to a user's project instructions or lint
+configuration. MISRA detection works without proprietary guideline text; do not
+download or redistribute that text as part of installation. Scans run locally,
+so users do not share a hosted analysis service. Large-scale distribution is
+possible, but simultaneous installation at hundreds of thousands of users and
+compatibility with every AI client have not been tested.
 
 ## Tool downloads
 
@@ -161,18 +230,10 @@ during incremental verification. Projects do not configure rule-text paths.
 
 ## AI skills and development
 
-[SKILL.md](SKILL.md) is the AI entry point. Install the repository in your client's
-skills directory, normally `~/.agents/skills/openembeddlint`. Claude can link to
-the same checkout. The skill and CLI share one implementation. Existing automation
-can still invoke `python scripts/c_verify.py` using that same engine.
+[SKILL.md](SKILL.md) is the AI entry point. Follow
+[AI-assisted installation](#ai-assisted-installation) for user-level setup.
+The skill and CLI share one implementation; normal AI checks use the CLI.
 
-After tool installation, run:
-
-```sh
-openembeddlint --self-test --timeout 600
-```
-
-Source checkouts also support `python scripts/c_verify.py --self-test --timeout 600`.
 Run native tests on every claimed platform. Installed-wheel validation is separate
 from source-tree tests. Package CI does not establish analyzer, firmware or
 hardware acceptance.

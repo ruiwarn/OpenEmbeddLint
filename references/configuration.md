@@ -33,9 +33,9 @@ A project that declares native rules requires compilation context: missing trans
 Rules remain in `.clang-tidy`; incremental execution is selected at the command line. There is no persistent exemption ledger, baseline JSON configuration or second rule-definition file.
 
 ```bash
-python3 "$SKILL_DIR/scripts/c_verify.py" --project-root /repo --git-modified
-python3 "$SKILL_DIR/scripts/c_verify.py" --project-root /repo --git-staged
-python3 "$SKILL_DIR/scripts/c_verify.py" --project-root /repo --baseline HEAD -f src/controller.c
+openembeddlint --project-root /repo --git-modified
+openembeddlint --project-root /repo --git-staged
+openembeddlint --project-root /repo --baseline HEAD -f src/controller.c
 ```
 
 Git selectors are mutually exclusive and default to baseline `HEAD`. `--git-modified` selects tracked differences from that baseline; `--git-all` also selects untracked C/C++ files. `--git-staged` uses index contents and index-native policies, including when the worktree has a different version. `--baseline <commit>` without another selector selects baseline-to-worktree differences plus untracked C/C++ files. For committed/MR changes, supply the intended base commit explicitly; default `HEAD` does not review already committed changes. The project root must be the Git repository root; use `-f`/`-d` for subprojects. Explicit selections without `--baseline` retain full enforcement.
@@ -82,7 +82,7 @@ Ordinary scanner findings are fixed using the existing diagnostic; do not duplic
 1. Identify the forbidden behavior, allowed cases and affected domain. Check the existing enabled and available rules first. Reuse an existing rule or enable/configure it when sufficient; add a custom rule only for a demonstrated gap.
 2. If the constraint is statically detectable, add it to the project's `.clang-tidy`; use a small project checker only when the native checks cannot express it. Keep business names and exceptions in the project, never the generic skill. Give each rule a stable ID and an actionable diagnostic naming the approved alternative. Do not create another rule-definition file or a Markdown entry for every correction.
 3. Add the smallest meaningful violation, valid-use and likely-false-positive regression cases in the project's existing `.test/` harness. The skill's own tests use its existing `tests/` harness. For constraints requiring runtime, protocol or hardware evidence, use regression tests or the existing applicable agent instructions; do not invent a text lint that claims to establish behavior.
-4. Verify through the actual c-verify entry point that the violation produces `FAIL` with rule ID/location, allowed cases pass, and malformed rule configuration produces `ERROR`. A saved rule, standalone tool success or zero child exit alone is not execution evidence. Reuse an established user decision; do not repeatedly request confirmation for the same rule.
+4. Verify through the OpenEmbeddLint CLI that the violation produces `FAIL` with rule ID/location, allowed cases pass, and malformed rule configuration produces `ERROR`. A saved rule, standalone tool success or zero child exit alone is not execution evidence. Reuse an established user decision; do not repeatedly request confirmation for the same rule.
 
 For a first native rule, copy the fallback and append the new `custom-` ID to both `Checks` and `WarningsAsErrors` when the agreed constraint is blocking. For example, this `CustomChecks` entry detects direct `vTaskDelay` calls inside functions named `*_IRQHandler`:
 

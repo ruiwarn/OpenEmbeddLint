@@ -15,7 +15,9 @@ Python 3.10+ is the host-side runtime prerequisite. Managed toolchain targets ar
 openembeddlint --project-root /path/to/project -f path/to/file.c
 ```
 
-Install the CLI and native tools as described in [README.md](README.md). Existing source integrations can invoke `python3 "$SKILL_DIR/scripts/c_verify.py"` with the same arguments.
+Use the installed `openembeddlint` command for AI checks. First locate it with `Get-Command openembeddlint` in PowerShell or `command -v openembeddlint` in a POSIX shell. If the current process has a stale PATH, use the verified absolute installed command and fix the user PATH. The private-tool requirement applies to backend analyzers, not to this CLI entry point.
+
+For installation, follow [AI-assisted installation](README.md#ai-assisted-installation). A missing CLI is an installation issue; do not routinely bypass its isolated environment with the system Python. Invoke `scripts/c_verify.py` only for an explicitly required existing source integration, or after confirming the CLI is unavailable and installation cannot be completed within the authorized scope. Record the fallback reason and use an interpreter with the dependencies declared in `pyproject.toml`. A `FAIL`, `ERROR` or `INCOMPLETE` result is never a reason to switch entry points.
 
 Other selectors: repeat `-f`, use `-d <directory>`, `--git-staged`, `--git-modified`, or `--git-all`. Use `--allow-empty` only when an empty pre-commit scope is legitimate.
 

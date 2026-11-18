@@ -20,10 +20,11 @@ Cppcheck、可选的 MISRA-C:2012 检查、clang-format 和 Lizard。
 ## 安装
 
 需要 Python 3.10+，增量门禁还需要 Git。先安装
-[pipx](https://pipx.pypa.io/stable/installation/)，然后执行：
+[pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html)，然后执行：
 
 ```sh
 pipx install https://github.com/ruiwarn/OpenEmbeddLint/releases/download/v3.0.0/openembeddlint-3.0.0-py3-none-any.whl
+pipx ensurepath
 openembeddlint --version
 openembeddlint-tools install
 openembeddlint --doctor
@@ -40,6 +41,7 @@ CLI 安装包体积较小。独立的工具安装器使用随包清单中的准�
 git clone https://github.com/ruiwarn/OpenEmbeddLint.git
 cd OpenEmbeddLint
 pipx install --editable .
+pipx ensurepath
 openembeddlint-tools install
 openembeddlint --doctor
 ```
@@ -47,8 +49,59 @@ openembeddlint --doctor
 源码安装会将命令链接到当前仓库，后续 `git pull --ff-only` 即可更新实现。
 依赖或打包元数据变化时，需要重新安装。
 
-不用 pipx 时，将 wheel 或源码安装到 Python 虚拟环境，使用该环境的命令，
-不需要替换系统 Python。
+不用 pipx 时，将 wheel 或源码安装到独立 Python 虚拟环境，并将该环境的命令暴露到
+用户命令目录，不需要替换系统 Python。pipx 有自己的 Python 版本要求；
+如果当前 Python 符合本项目要求但不符合 pipx 要求，直接使用虚拟环境。
+`pipx ensurepath` 后仍找不到命令时，打开新终端以继承更新后的 PATH。
+
+## 给 AI 的安装说明
+
+把下面这段话交给本地编程 AI；单独发仓库链接不等于要求它执行安装：
+
+> 请把 https://github.com/ruiwarn/OpenEmbeddLint 安装到这台机器，供我当前用户和
+> AI 编程工具使用。按 README 的“给 AI 的安装说明”安装用户级技能，让两个 CLI
+> 命令对当前用户全局生效，下载缺少的固定版本原生工具，并验证安装结果。
+> 复用已有安装，如有无法完成或验证的步骤，明确告诉我。
+
+执行该请求的 AI 按以下步骤操作：
+
+1. 确认目标机器、操作系统及本机架构、Python 3.10+、Git 和 AI 客户端。
+   需要本机文件访问、命令执行及下载能力。云端会话可能只能安装到自己的环境，
+   不能将其称为已安装到用户电脑。缺少的前置软件在用户授权范围内从官方来源安装。
+2. 使用客户端配置的**用户级**技能目录。本地
+   [Codex](https://learn.chatgpt.com/docs/build-skills) 使用
+   `~/.agents/skills/openembeddlint`；本地
+   [Claude Code](https://code.claude.com/docs/en/skills) 使用
+   `~/.claude/skills/openembeddlint`，可通过符号链接或 Windows 目录联接指向同一份源码。
+   其他客户端先核对其文档中的技能目录及支持情况，不维护重复的源码副本。
+3. 将 `https://github.com/ruiwarn/OpenEmbeddLint.git` 克隆到解析后的技能绝对路径。
+   目录已存在时先检查 Git 远端和工作区；仅对来自本仓库的干净工作区执行
+   `git pull --ff-only`。保留本地修改，目录或安装冲突先查明原因。
+4. 已有绑定该源码的正常 CLI 安装时直接复用；否则执行
+   `pipx install --editable "<技能目录绝对路径>"`，再执行 `pipx ensurepath`。
+   pipx 不可用时，使用独立虚拟环境和用户命令目录中的启动入口。
+   实际路径加引号，确保 `openembeddlint` 和 `openembeddlint-tools` **两个命令**都全局可用。
+   editable 安装随源码更新生效；依赖或打包元数据变化时重新安装。
+5. PowerShell 用 `Get-Command openembeddlint`，POSIX shell 用
+   `command -v openembeddlint` 查找已安装命令，并核对工具安装命令。
+   更新当前进程 PATH，或先使用核实过的 CLI 绝对路径，直到新终端继承用户 PATH。
+   正常检查使用 CLI；源码入口的受控例外见 [SKILL.md](SKILL.md)。
+6. 执行 `openembeddlint-tools install`，由安装器按
+   [tools/manifest.json](tools/manifest.json) 选择本机平台、准确下载链接、版本和校验值。
+   已有有效工具复用，不完整安装会报错；不要擅自换成最新版或 PATH 中的任意分析器。
+   注意下文的 macOS SDK 要求，缺少工具或平台条件时不能报告检查通过。
+7. 在源码仓库外执行下列命令，报告命令位置、版本、doctor 结果、自测数量、跳过项及失败。
+   另外确认 AI 客户端能发现技能，必要时重新加载客户端。克隆成功不代表安装可用。
+
+```sh
+openembeddlint --version
+openembeddlint --doctor --detail
+openembeddlint --self-test --detail --timeout 600
+```
+
+安装本身不需要修改用户工程的指令文件或 lint 配置。MISRA 检测不依赖专有规则原文，
+安装时不要下载或再分发该原文。扫描在各用户本机运行，不共用一个托管分析服务。
+可以公开分发给大量用户，但尚未测试几十万人同时安装，也未验证所有 AI 客户端的兼容性。
 
 ## 工具下载
 
@@ -147,17 +200,9 @@ openembeddlint --project-root . --git-modified --misra-c2012
 
 ## AI 技能与开发维护
 
-[SKILL.md](SKILL.md) 是 AI 使用入口。通常将仓库安装到
-`~/.agents/skills/openembeddlint`，Claude 的技能入口可以链接到同一份源码。
-CLI 和技能共用实现，现有自动化也可以继续通过 `python scripts/c_verify.py` 调用。
+[SKILL.md](SKILL.md) 是 AI 使用入口，用户级安装见[给 AI 的安装说明](#给-ai-的安装说明)。
+CLI 和技能共用实现，正常 AI 检查使用 CLI。
 
-工具安装完成后运行：
-
-```sh
-openembeddlint --self-test --timeout 600
-```
-
-源码目录也支持 `python scripts/c_verify.py --self-test --timeout 600`。
 每个声明支持的平台都应运行本机测试；安装后 wheel 验证与源码自测分别记录。
 CI 的打包检查不能代替分析器、固件或硬件验收。
 
