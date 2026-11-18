@@ -1,0 +1,21 @@
+README.md
+  s_ba718d54c093cd::t_249bb93d725e39 45,50-52
+README.zh-CN.md
+  s_ba718d54c093cd::t_249bb93d725e39 42,47-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7b4c8f2532d1d7c54b2ce287c076170affecf986",
+  "prompts": {},
+  "sessions": {
+    "s_ba718d54c093cd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e1f1-8bb8-7f50-9459-398ddc01be3c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ruiwarn <162423525+ruiwarn@users.noreply.github.com>"
+    }
+  }
+}
