@@ -14,10 +14,13 @@ def metric_values(issue):
     if issue["rule"] == "readability-function-size":
         values = {}
         for note in issue.get("notes", []):
-            match = re.match(r"(\d+) (.+?) \(threshold (\d+)\)", note["message"])
+            if "threshold" not in note["message"]:
+                continue
+            match = re.match(r"(?:nesting level )?(\d+) (.+?) \(threshold (\d+)\)", note["message"])
             if not match:
                 return None
-            values[match[2]] = (int(match[1]), int(match[3]))
+            metric_name = "nesting level" if "nesting level" in note["message"] else match[2]
+            values[metric_name] = (int(match[1]), int(match[3]))
         return values or None
     match = re.search(r"(?:complexity of|McCabe CCN|NLOC|total length) (\d+).*?\(threshold (\d+)\)", issue["message"])
     return {issue["rule"]: (int(match[1]), int(match[2]))} if match else None
@@ -132,14 +135,19 @@ def classify_issue(records, current, before_root, after_root, renames, used, map
         if candidates:
             return "unattributed", candidates, "function identity is ambiguous"
     candidates = [index for index, record in enumerate(records) if index not in used and record["issue"].get("file") == old_name and issue_key(record["check"], record["issue"], before_root) == issue_key(current["check"], issue, after_root)]
-    exact = [index for index in candidates if records[index]["issue"].get("line") == line_map.get(issue["line"]) and records[index]["issue"].get("column") == issue.get("column")]
+    same_line = [index for index in candidates if records[index]["issue"].get("line") == line_map.get(issue["line"])]
+    exact = [index for index in same_line if records[index]["issue"].get("column") == issue.get("column")]
+    if not exact and len(same_line) == 1 and before.read_bytes() == after.read_bytes():
+        exact = same_line
     if len(exact) == 1:
         other = records[exact[0]]["issue"]
         if not same_trace(other.get("notes", []), issue.get("notes", []), before_root, after_root, renames, maps):
             return "unattributed", exact, "diagnostic trace changed"
         return "existing" if other["severity"] == "error" else "worsened", exact, "same diagnostic on an unchanged source line"
     if candidates:
-        return "unattributed", candidates, "similar old diagnostic moved or its source line changed"
+        target_line = line_map.get(issue["line"], issue["line"])
+        best = min(candidates, key=lambda idx: abs((records[idx]["issue"].get("line") or 0) - target_line))
+        return "unattributed", [best], "similar old diagnostic moved or its source line changed"
     return "new", [], "no matching diagnostic under the same rule configuration"
 
 

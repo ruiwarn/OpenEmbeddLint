@@ -73,6 +73,16 @@ class AttributionTests(unittest.TestCase):
         gate = self.compare(report([old_issue]), report([new_issue]))
         self.assertEqual(gate["counts"]["worsened"], 1)
 
+    def test_function_size_compares_nesting_and_ignores_context_notes(self):
+        old = diagnostic(1, "function 'f' exceeds recommended size/complexity thresholds", "readability-function-size", notes=[
+            {"message": "nesting level 6 starts here (threshold 5)"},
+            {"message": "related context"},
+        ])
+        new = copy.deepcopy(old)
+        new["notes"][0]["message"] = "nesting level 7 starts here (threshold 5)"
+        gate = self.compare(report([old]), report([new]))
+        self.assertEqual((gate["status"], gate["counts"]["worsened"]), ("FAIL", 1))
+
     def test_execution_error_never_becomes_a_passing_gate(self):
         self.assertEqual(self.compare(report([], "ERROR"), report([]))["status"], "INCOMPLETE")
 
@@ -91,6 +101,16 @@ class AttributionTests(unittest.TestCase):
         new = diagnostic(2, notes=[{"file": "a.c", "line": 2, "column": 5, "message": "value originated here"}])
         gate = self.compare(report([old]), report([new]), new_source="\nint f(void) { return 23; }\n")
         self.assertEqual(gate["status"], "PASS")
+
+    def test_column_drift_requires_same_line_and_trace_on_unchanged_source(self):
+        old = diagnostic(1, notes=[{"file": "a.c", "line": 1, "column": 8, "message": "origin"}])
+        for line, message, status in ((1, "origin", "PASS"), (1, "changed origin", "INCOMPLETE"), (2, "origin", "INCOMPLETE")):
+            with self.subTest(line=line, message=message):
+                new = copy.deepcopy(old)
+                new.update(line=line, column=6)
+                new["notes"][0]["message"] = message
+                gate = self.compare(report([old]), report([new]), "int x;\nint y;\n")
+                self.assertEqual(gate["status"], status)
 
     def test_duplicate_translation_unit_diagnostics_are_not_new_occurrences(self):
         gate = self.compare(report([diagnostic(1)]), report([diagnostic(1), diagnostic(1)]))
