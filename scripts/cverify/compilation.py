@@ -237,10 +237,14 @@ def private_driver_entry_args(entry, toolchain):
     return target_driver_flags(arguments, include_defines=True)
 
 
-_COMPILER_IDENTITY_MACROS = frozenset({
-    "__GNUC__", "__GNUC_MINOR__", "__GNUC_PATCHLEVEL__",
-    "__clang__", "__clang_major__", "__clang_minor__", "__clang_patchlevel__",
-})
+_TARGET_IDENTITY_MACRO_RE = re.compile(
+    r"^(?:__GNUC__|__GNUC_MINOR__|__GNUC_PATCHLEVEL__"
+    r"|__clang__|__clang_major__|__clang_minor__|__clang_patchlevel__"
+    r"|__ARM_ARCH(?:_[A-Z0-9_]+)?|__ARM_EABI__|__ARM_FEATURE_[A-Z0-9_]+"
+    r"|__thumb2?__|__SOFTFP__|__VFP_FP__|__aarch64__"
+    r"|__riscv(?:_[a-z0-9_]+)?|__AVR(?:_[A-Z0-9_]+)?|__XTENSA__"
+    r"|__BYTE_ORDER__|__ORDER_(?:LITTLE|BIG)_ENDIAN__)$"
+)
 _DEFINE_LINE_RE = re.compile(r"^#define\s+([A-Za-z_]\w*)(?:\s+(.*?))?\s*$")
 
 
@@ -253,8 +257,12 @@ def _extract_identity_defines(stdout: str) -> list[str]:
     found: dict[str, str] = {}
     for line in stdout.splitlines():
         match = _DEFINE_LINE_RE.match(line)
-        if match and match[1] in _COMPILER_IDENTITY_MACROS:
-            found[match[1]] = match[2] or ""
+        if not match or not _TARGET_IDENTITY_MACRO_RE.fullmatch(match[1]):
+            continue
+        val = (match[2] or "").strip()
+        if any(ch in val for ch in (" ", "\t", "(", ")")):
+            continue
+        found[match[1]] = val
     return [f"{name}={val}" if val else name for name, val in sorted(found.items())]
 
 

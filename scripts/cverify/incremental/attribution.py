@@ -251,10 +251,10 @@ def compare_reports(before, after, before_root, after_root, renames=None, gaps=(
         matched_baseline = None
         if current["check"] in required_failures:
             classification, matches, reason = "required", [], "this check always applies to the current snapshot"
-        elif missing:
-            classification, matches, reason = "unattributed", [], "analysis evidence is incomplete"
         else:
             classification, matches, reason, matched_baseline = classify_issue(old, current, before_root, after_root, renames or {}, used, maps, index=index)
+            if missing and classification not in ("existing", "worsened"):
+                classification, matches, reason = "unattributed", [], "analysis evidence is incomplete"
         used.update(matches)
         entry = {**copy.deepcopy(current), "classification": classification, "reason": reason}
         if matched_baseline is not None:

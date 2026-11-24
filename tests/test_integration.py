@@ -550,7 +550,7 @@ class RuntimeIntegrationTests(unittest.TestCase):
                 f" {fw} (framework directory)\n"
                 "End of search list.\n"
             )
-            with patch("cverify.compilation.run_process", return_value=ProcessResult(["arm-none-eabi-gcc"], 0, "#define __GNUC__ 10\n#define __GNUC_MINOR__ 3\n#define __GNUC_PATCHLEVEL__ 1\n#define IGNORED_MACRO 1\n", fake_stderr, 0.01)):
+            with patch("cverify.compilation.run_process", return_value=ProcessResult(["arm-none-eabi-gcc"], 0, "#define __GNUC__ 10\n#define __GNUC_MINOR__ 3\n#define __GNUC_PATCHLEVEL__ 1\n#define __ARM_ARCH 7\n#define __ARM_ARCH_PROFILE 77\n#define __ARM_ARCH (bad)\n#define IGNORED_MACRO 1\n", fake_stderr, 0.01)):
                 args, rec = resolve_entry_driver_arguments({"directory": str(root), "file": "a.c", "arguments": [str(ext_gcc), "-mcpu=cortex-m0", "-DFOO=1", "-c", "a.c"]}, Toolchain(SKILL_DIR), False, root)
             self.assertEqual(args, [
                 "--target=arm-none-eabi",
@@ -559,7 +559,7 @@ class RuntimeIntegrationTests(unittest.TestCase):
                 f"-idirafter{gcc_fixed.resolve().as_posix()}",
                 f"-iframework{fw.resolve().as_posix()}",
             ])
-            self.assertEqual(rec.get("defines"), ["__GNUC_MINOR__=3", "__GNUC_PATCHLEVEL__=1", "__GNUC__=10"])
+            self.assertEqual(rec.get("defines"), ["__ARM_ARCH=7", "__ARM_ARCH_PROFILE=77", "__GNUC_MINOR__=3", "__GNUC_PATCHLEVEL__=1", "__GNUC__=10"])
             self.assertNotIn("output", rec)
             self.assertFalse(rec.get("fallback"))
             with patch("cverify.compilation.run_process", return_value=ProcessResult(["arm-none-eabi-gcc"], 1, "", "unsupported", 0.01)):

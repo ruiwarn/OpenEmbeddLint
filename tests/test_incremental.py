@@ -155,6 +155,19 @@ class AttributionTests(unittest.TestCase):
         gate_grow = self.compare(old_cross, new_two)
         self.assertEqual((gate_grow["status"], gate_grow["counts"]["new"], gate_grow["counts"]["existing"]), ("FAIL", 1, 1))
 
+    def test_incomplete_analysis_preserves_exact_existing_and_worsened_attribution(self):
+        rule_ccn = "readability-function-cognitive-complexity"
+        old = report([diagnostic(1), diagnostic(2, "function 'f' has cognitive complexity of 29 (threshold 25)", rule_ccn)], status="ERROR")
+        new = report([diagnostic(1), diagnostic(3, "24 is a magic number")], status="ERROR")
+        src = "int f(void) { return 23; }\n// keep\nint g(void) { return 24; }\n"
+        gate = self.compare(old, new, old_source=src, new_source=src)
+        self.assertEqual((gate["status"], gate["complete"]), ("INCOMPLETE", False))
+        self.assertEqual((gate["counts"]["existing"], gate["counts"]["unattributed"], gate["counts"]["new"]), (1, 1, 0))
+
+        worsened_new = report([diagnostic(1), diagnostic(2, "function 'f' has cognitive complexity of 35 (threshold 25)", rule_ccn)], status="ERROR")
+        worsened_gate = self.compare(old, worsened_new, old_source="int f(int x) {\n return x;\n}\n", new_source="int f(int x) {\n if (x) return x;\n return 0;\n}\n")
+        self.assertEqual((worsened_gate["status"], worsened_gate["complete"], worsened_gate["counts"]["worsened"], worsened_gate["counts"]["existing"]), ("FAIL", False, 1, 1))
+
 
 if __name__ == "__main__":
     unittest.main()
