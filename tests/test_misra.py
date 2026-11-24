@@ -29,7 +29,11 @@ class MisraTests(unittest.TestCase):
         self.user_home = patch("cverify.installation.Path.home", return_value=Path(self.temporary.name) / "user-home")
         self.user_home.start()
         self.addCleanup(self.user_home.stop)
-        self.environment = patch.dict(os.environ, {"OPENEMBEDDLINT_MISRA_RULE_TEXTS": "", "OPENEMBEDDLINT_TOOLS_DIR": str(self.toolchain.root.parent)})
+        self.environment = patch.dict(os.environ, {
+            "OPENEMBEDDLINT_MISRA_RULE_TEXTS": "",
+            "OPENEMBEDDLINT_TOOLS_DIR": str(self.toolchain.root.parent),
+            "OPENEMBEDDLINT_CACHE_DIR": str(Path(self.temporary.name) / "cache"),
+        })
         self.environment.start()
         self.addCleanup(self.environment.stop)
         self.output = Path(self.temporary.name) / "reports"
@@ -186,6 +190,22 @@ class MisraTests(unittest.TestCase):
             code, document = self.scan("--misra-c2012", "--baseline", "HEAD")
             self.assertEqual(code, 1, document)
             self.assertTrue(any(record["issue"]["rule"] == "misra-c2012-15.1" and record["classification"] == "new" for record in document["gate"]["issues"]))
+
+    def test_excluded_directory_suppresses_vendor_header_misra_and_cleans_build_dirs(self):
+        vendor = self.root / "third_party"
+        vendor.mkdir()
+        (vendor / "vendor.h").write_text("#define UNUSED_VENDOR_MACRO 0x55AAU\nstatic inline int vfn(void) { goto bad; bad: return 0; }\n", encoding="utf-8")
+        (self.root / "a.c").write_text('#include "third_party/vendor.h"\nint main(void) { goto done;\ndone:\n    return 0;\n}\n', encoding="utf-8")
+        self.config["static"] = {"misra_c2012": True}
+        self.config["exclude_directories"] = ["third_party/"]
+        self.save_config()
+        code, document = self.scan()
+        self.assertEqual(code, 1, document)
+        check = next(ch for ch in document["checks"] if ch["id"] == "cppcheck")
+        self.assertFalse(any("vendor.h" in str(iss.get("file", "")) for iss in check["issues"]), check["issues"])
+        self.assertTrue(any(iss["rule"] == "misra-c2012-15.1" and iss["file"] == "a.c" for iss in check["issues"]))
+        logs_dir = Path(document["report_path"]).parent / "logs"
+        self.assertFalse(list(logs_dir.glob("cppcheck-build*")))
 
 
 if __name__ == "__main__":

@@ -5,10 +5,13 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from . import __version__
@@ -24,7 +27,7 @@ from .checks import (
 )
 from .compilation import HEADER_SUFFIXES, SOURCE_SUFFIXES, locate_compdb
 from .execution import ERROR, PASS, SKIP, CheckResult, ToolUnavailable, Toolchain, run_process
-from .report import SCHEMA_VERSION, exit_code, full_document, render
+from .report import SCHEMA_VERSION, dump_report_json, exit_code, full_document, render
 from .incremental.runner import run_incremental
 
 
@@ -41,7 +44,7 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="OpenEmbeddLint: deterministic C/C++ verification with a private toolchain")
     result.add_argument("--version", action="version", version="OpenEmbeddLint " + __version__)
     result.add_argument("--project-root", help="project root; required unless --self-test is used")
-    result.add_argument("-f", "--file", action="append", default=[], help="source/header file; repeatable")
+    result.add_argument("-f", "--file", action="extend", nargs="+", default=[], help="source/header file; accepts multiple values or repeated -f")
     result.add_argument("-d", "--directory", help="recursively check a directory")
     git_selection = result.add_mutually_exclusive_group()
     git_selection.add_argument("--git-staged", action="store_true", help="verify the index against the baseline (default HEAD)")
@@ -54,8 +57,12 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--profile", choices=("quick", "full", "fuzz"), default="quick")
     result.add_argument("--format", choices=("json", "text", "markdown"), default="json")
     result.add_argument("--detail", action="store_true", help="include every diagnostic, command, version and artifact")
+    result.add_argument("--actionable", action="store_true", help="include all actionable findings in compact output")
+    result.add_argument("--limit", type=int, default=5, help="max findings in compact output (0 for unlimited)")
     result.add_argument("--output-dir", help="artifact parent; a unique run directory is always created")
     result.add_argument("--timeout", type=float, default=180.0, help="default timeout per process in seconds")
+    result.add_argument("--jobs", type=int, default=None, help="parallel worker threads for static checks")
+    result.add_argument("--no-cache", action="store_true", help="disable incremental baseline scan cache")
     result.add_argument("--checks", help="append native clang-tidy check globs; use -* to replace selection")
     result.add_argument("--header-filter")
     result.add_argument("--severity", choices=("error", "warning", "all"), default="all")
@@ -66,6 +73,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--skip-cyclomatic", action="store_true")
     result.add_argument("--doctor", action="store_true", help="verify private tools without checking source")
     result.add_argument("--self-test", action="store_true", help="run the skill's own regression tests")
+    result.add_argument("--prune-temp", action="store_true", help="remove stale temporary OpenEmbeddLint run directories")
     result.add_argument("--summary", action="store_true", help="legacy alias for the default compact output")
     result.add_argument("-q", "--quiet", action="store_true")
     return result
@@ -188,6 +196,13 @@ def load_config(root: Path, explicit: str | None) -> tuple[dict, list[str]]:
         config["cyclomatic"]["metric_policies"] = explicit_metric_policies
     schema = json.loads((SKILL_DIR / "config.schema.json").read_text(encoding="utf-8"))
     validate_schema(config, schema, "config", schema)
+    for index, entry in enumerate(config.get("suppressions", [])):
+        pattern = entry.get("line_pattern")
+        if pattern is not None:
+            try:
+                re.compile(pattern)
+            except re.error as error:
+                raise CLIError(f"config error at suppressions[{index}].line_pattern: {error}") from error
     return config, sources
 
 
@@ -225,6 +240,45 @@ def select_files(args: argparse.Namespace, root: Path, config: dict) -> list[Pat
     return selected
 
 
+def _dir_bytes(path: Path) -> int:
+    total = 0
+    for item in path.rglob("*"):
+        if item.is_file():
+            try:
+                total += item.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def prune_temp_runs(parent: Path, *, keep_last: int = 30, max_age_days: float = 7.0, exclude: set[Path] = frozenset()) -> tuple[int, int]:
+    """Best-effort removal of stale default c-verify-* temp directories."""
+    if not parent.is_dir():
+        return 0, 0
+    cutoff = time.time() - (max_age_days * 86400.0)
+    candidates = []
+    for entry in parent.iterdir():
+        if not entry.name.startswith("c-verify-") or not entry.is_dir() or entry in exclude:
+            continue
+        try:
+            candidates.append((entry.stat().st_mtime, entry))
+        except OSError:
+            continue
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    pruned, freed = 0, 0
+    for idx, (mtime, entry) in enumerate(candidates):
+        if idx < keep_last and mtime >= cutoff:
+            continue
+        size = _dir_bytes(entry)
+        try:
+            shutil.rmtree(entry)
+            pruned += 1
+            freed += size
+        except OSError:
+            continue
+    return pruned, freed
+
+
 def make_output_dir(value: str | None, root: Path | None = None) -> Path:
     parent = Path(value or tempfile.gettempdir()).resolve()
     if root is not None:
@@ -232,7 +286,10 @@ def make_output_dir(value: str | None, root: Path | None = None) -> Path:
         if parent.is_relative_to(repository):
             raise CLIError("verification artifacts must be outside the source repository; omit --output-dir or choose an external directory")
     parent.mkdir(parents=True, exist_ok=True)
-    return Path(tempfile.mkdtemp(prefix="run-" if value else "c-verify-", dir=parent))
+    created = Path(tempfile.mkdtemp(prefix="run-" if value else "c-verify-", dir=parent))
+    if value is None:
+        prune_temp_runs(parent, keep_last=30, max_age_days=7.0, exclude={created})
+    return created
 
 
 def doctor(toolchain: Toolchain, output_dir: Path) -> list[CheckResult]:
@@ -276,20 +333,33 @@ def requirement_evidence(config: dict, checks: list[CheckResult]) -> tuple[Check
 def execute_checks(args: argparse.Namespace, root: Path, toolchain: Toolchain, config: dict, files: list[Path], compdb: Path | None, output_dir: Path) -> list[CheckResult]:
     logs = output_dir / "logs"
     checks: list[CheckResult] = []
+    jobs = getattr(args, "jobs", None)
+    if jobs is None:
+        jobs = min(4, os.cpu_count() or 1)
+    driver_cache = getattr(args, "_driver_cache", None)
+    if driver_cache is None:
+        driver_cache = {}
+    exclude_dirs = config.get("exclude_directories", [])
     if args.profile != "fuzz" and not files:
         checks.append(CheckResult("source-scope", "environment", SKIP, required=False, reason="no selected files exist in this snapshot"))
     if args.profile != "fuzz" and files:
         if args.skip_cppcheck:
             checks.append(CheckResult("cppcheck", "correctness", SKIP, required=False, reason="skipped by command line"))
         else:
-            checks.append(run_cppcheck(files, root, toolchain, config["static"], args.timeout, logs, True, compdb, config["suppressions"]))
+            checks.append(run_cppcheck(
+                files, root, toolchain, config["static"], args.timeout, logs, True, compdb, config["suppressions"],
+                exclude_directories=exclude_dirs, jobs=jobs, driver_cache=driver_cache,
+            ))
         tidy_required = args.profile == "full" or compdb is not None or any(clang_tidy_config(file, root, SKILL_DIR).is_relative_to(root) for file in files)
         if args.skip_clang_tidy:
             checks.append(CheckResult("clang-tidy", "correctness", SKIP, required=False, reason="skipped by command line"))
         else:
-            checks.append(run_clang_tidy(files, root, toolchain, config["static"], args.timeout, logs, tidy_required, compdb, config["suppressions"], args.checks, args.header_filter))
+            checks.append(run_clang_tidy(
+                files, root, toolchain, config["static"], args.timeout, logs, tidy_required, compdb, config["suppressions"], args.checks, args.header_filter,
+                exclude_directories=exclude_dirs, jobs=jobs, driver_cache=driver_cache,
+            ))
         if config["format"]["enabled"] and not args.skip_format:
-            checks.append(run_clang_format(files, root, toolchain, config["format"], args.timeout, logs))
+            checks.append(run_clang_format(files, root, toolchain, config["format"], args.timeout, logs, jobs=jobs))
         if config["cyclomatic"]["enabled"] and not args.skip_cyclomatic:
             checks.append(run_cyclomatic(files, root, toolchain, config["cyclomatic"], args.timeout, logs))
     if args.profile != "fuzz":
@@ -341,11 +411,18 @@ def project_report(args, root, toolchain, config, files, compdb, output_dir, sou
     }
     document = full_document(context, checks, requirements)
     output_dir.mkdir(parents=True, exist_ok=True)
-    Path(document["report_path"]).write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+    Path(document["report_path"]).write_text(dump_report_json(document), encoding="utf-8")
     return document
 
 
 def run(args: argparse.Namespace) -> tuple[dict, int]:
+    if getattr(args, "jobs", None) is not None and args.jobs < 1:
+        raise CLIError("--jobs must be >= 1")
+    if getattr(args, "limit", 5) < 0:
+        raise CLIError("--limit must be >= 0")
+    if getattr(args, "prune_temp", False):
+        pruned, freed = prune_temp_runs(Path(tempfile.gettempdir()).resolve(), keep_last=0, max_age_days=0.0)
+        return {"schema_version": SCHEMA_VERSION, "status": PASS, "complete": True, "pruned_dirs": pruned, "freed_bytes": freed}, 0
     root = Path(args.project_root).resolve() if args.project_root else None
     if not (args.doctor or args.self_test):
         if root is None:
@@ -390,7 +467,7 @@ def run(args: argparse.Namespace) -> tuple[dict, int]:
             compdb = locate_compdb(root, args.compdb, config["static"])
             document = project_report(args, root, toolchain, config, files, compdb, output_dir, sources)
     report_path = Path(document["report_path"])
-    report_path.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+    report_path.write_text(dump_report_json(document), encoding="utf-8")
     return document, exit_code(document.get("gate", document["summary"]))
 
 
@@ -409,5 +486,9 @@ def main(argv: list[str] | None = None) -> int:
             print(output)
         return status
     if not args.quiet:
-        print(render(document, args.format, args.detail))
+        if "checks" not in document:
+            print(json.dumps(document, ensure_ascii=False, indent=2 if args.detail else None, separators=None if args.detail else (",", ":")))
+        else:
+            limit = 0 if getattr(args, "actionable", False) else getattr(args, "limit", 5)
+            print(render(document, args.format, args.detail, limit=limit))
     return status

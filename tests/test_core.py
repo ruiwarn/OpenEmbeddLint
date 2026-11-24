@@ -5,10 +5,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from cverify.checks import append_issue, parse_clang_tidy, run_cppcheck, run_project_command
+from cverify.checks import append_issue, is_excluded_header_issue, parse_clang_tidy, run_cppcheck, run_project_command
+from cverify.cli import load_config
+from cverify.compilation import compiler_name_arguments, is_gnu_like_compiler, long_path_name, sanitize_dependency_arguments
 from cverify.execution import ERROR, FAIL, PASS, SKIP, CheckResult, Issue, Toolchain, platform_key
 from cverify.report import compact_document, exit_code, full_document
 
@@ -165,6 +168,56 @@ class MissingToolTests(unittest.TestCase):
             result = run_cppcheck([source], root, toolchain, {}, 1, root, True)
         self.assertEqual(result.status, ERROR)
         self.assertIn("windows-arm64", result.reason)
+
+
+class PortabilityAndSuppressionTests(unittest.TestCase):
+    def test_compiler_triple_handles_posix_symlinks_and_windows_short_paths(self):
+        self.assertEqual(compiler_name_arguments("/usr/bin/arm-none-eabi-gcc"), ["--target=arm-none-eabi"])
+        self.assertTrue(is_gnu_like_compiler("/usr/bin/ccache-clang-18"))
+        self.assertFalse(is_gnu_like_compiler("C:/iar/iccarm.exe"))
+        self.assertEqual(long_path_name("/nonexistent/8dot3~1"), "/nonexistent/8dot3~1")
+        with patch("cverify.compilation.os.name", "nt"), patch("cverify.compilation.long_path_name", return_value=r"C:\Toolchain\bin\arm-none-eabi-gcc.exe"):
+            self.assertEqual(compiler_name_arguments(r"C:\PROGRA~2\TOOL~1\bin\AR19DD~1.EXE"), ["--target=arm-none-eabi"])
+            self.assertTrue(is_gnu_like_compiler(r"C:\PROGRA~2\TOOL~1\bin\AR19DD~1.EXE"))
+
+    def test_sanitize_dependency_arguments_keeps_macros_and_strips_codegen_warnings(self):
+        cleaned = sanitize_dependency_arguments([
+            "-Iinc", "-isystem", "/sys", "-D", "O2", "-include", "-g.h",
+            "-mcpu=cortex-m4", "-mthumb", "-Wp,-DFROM_WP", "-Werror", "-Wall",
+            "-O2", "-gdwarf-4", "-flto=auto", "--param", "max-inline=500",
+            "-specs=nano.specs", "-Wl,--gc-sections", "-o", "out.o", "-c", "src.c",
+        ])
+        self.assertEqual(cleaned, ["-Iinc", "-isystem", "/sys", "-D", "O2", "-include", "-g.h", "-mcpu=cortex-m4", "-mthumb", "-Wp,-DFROM_WP", "src.c"])
+
+    def test_symbol_and_line_pattern_suppressions_stay_scoped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "a.c"
+            source.write_text("void f(void) {\n    SPECIAL_MACRO();\n    return;\n}\n", encoding="utf-8")
+            suppressions = [{"check": "misra-c2012-15.5", "path": "a.c", "symbol": "SPECIAL_MACRO", "line_pattern": r"SPECIAL_MACRO\(", "reason": "macro yields"}]
+            result = CheckResult("cppcheck", "correctness", PASS)
+            append_issue(result, Issue(file="a.c", line=2, rule="misra-c2012-15.5", message="Rule 15.5"), suppressions, root=root)
+            append_issue(result, Issue(file="a.c", line=3, rule="misra-c2012-15.5", message="Rule 15.5"), suppressions, root=root)
+            self.assertEqual(len(result.metrics.get("suppressed", [])), 1)
+            self.assertEqual([i.line for i in result.issues], [3])
+            (root / ".c-verify.json").write_text(json.dumps({"schema_version": 2, "suppressions": [{"check": "cppcheck", "line_pattern": "[unclosed", "reason": "bad"}]}), encoding="utf-8")
+            with self.assertRaisesRegex(Exception, "line_pattern"):
+                load_config(root, None)
+
+    def test_compact_document_limit_zero_returns_all_findings(self):
+        issues = [Issue(file="a.c", line=idx, rule="r", message="msg") for idx in range(1, 9)]
+        doc = full_document({"profile": "quick", "report_path": "report.json"}, [CheckResult("clang-tidy", "correctness", FAIL, issues=issues)], [])
+        compact = compact_document(doc, limit=0)
+        self.assertEqual(len(compact["findings"][0]["issues"]), 8)
+        self.assertNotIn("issues_omitted", compact)
+
+    def test_external_header_filtered_even_with_empty_exclude_dirs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "repo"
+            root.mkdir()
+            ext = Path(directory) / "external_sdk" / "inc.h"
+            self.assertTrue(is_excluded_header_issue(Issue(file=str(ext), line=1, rule="r", message="w"), root, (), {"a.c"}))
+            self.assertFalse(is_excluded_header_issue(Issue(file=str(ext), line=1, rule="clang-diagnostic-error", severity="error", message="fatal error: file not found"), root, (), {"a.c"}))
 
 
 if __name__ == "__main__":

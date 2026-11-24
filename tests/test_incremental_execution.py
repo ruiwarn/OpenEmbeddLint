@@ -24,10 +24,10 @@ SOURCE = "int f(void)\n{\n    return 23;\n}\n"
 
 class IncrementalExecutionTests(unittest.TestCase):
     def setUp(self):
-        environment = patch.dict(os.environ, {"GIT_TRACE2_EVENT": "0"})
+        self.temp = tempfile.TemporaryDirectory(prefix="cverify gate ")
+        environment = patch.dict(os.environ, {"GIT_TRACE2_EVENT": "0", "OPENEMBEDDLINT_CACHE_DIR": str(Path(self.temp.name) / "cverify-cache")})
         environment.start()
         self.addCleanup(environment.stop)
-        self.temp = tempfile.TemporaryDirectory(prefix="cverify gate ")
         self.root = Path(self.temp.name) / "project space"
         self.root.mkdir()
         self.output = Path(self.temp.name) / "reports"
@@ -380,6 +380,55 @@ class IncrementalExecutionTests(unittest.TestCase):
         self.assertIn((snapshot / "a.c").as_posix(), arguments)
         self.assertEqual(split_compiler_command('"path with space/compiler" -DNAME="two words"')[-1], "-DNAME=two words")
         self.assertEqual(expand_response_arguments(["@options.rsp"], self.root)[0], "-DNAME=two words")
+
+    def test_dependency_discovery_ignores_werror_and_gcc_codegen_flags(self):
+        (self.root / "domain.h").write_text("static inline int val(void) { return 1; }\n", encoding="utf-8")
+        (self.root / "a.c").write_text('#include "domain.h"\nint f(void) { return val(); }\n', encoding="utf-8")
+        self.commit()
+        compiler = Toolchain(SKILL_DIR).require("clang")
+        entries = [{
+            "directory": str(self.root),
+            "file": "a.c",
+            "arguments": [str(compiler), "--target=arm-none-eabi", "-mcpu=cortex-m4", "-mthumb", "-Werror", "-Wall", "-O2", "-flto", "-c", "a.c"],
+        }]
+        (self.root / "compile_commands.json").write_text(json.dumps(entries), encoding="utf-8")
+        (self.root / "domain.h").write_text("static inline int val(void) { return 24; }\n", encoding="utf-8")
+        code, document = self.run_gate("--git-modified", "--detail")
+        self.assertEqual(code, 1, document)
+        self.assertEqual(document["gate"]["counts"]["new"], 1)
+
+    def test_non_build_non_source_change_is_advisory_while_build_inputs_block(self):
+        (self.root / "tools").mkdir()
+        (self.root / "tools" / "check.py").write_text("print('v1')\n", encoding="utf-8")
+        self.commit()
+        (self.root / "tools" / "check.py").write_text("print('v2')\n", encoding="utf-8")
+        code, document = self.run_gate("-f", "a.c", "--baseline", "HEAD", "--detail")
+        self.assertEqual(code, 0, document)
+        self.assertIn("tools/check.py", document["gate"]["advisory_non_source_changes"])
+
+    def test_baseline_cache_reuses_unchanged_baseline_and_respects_no_cache(self):
+        cache_dir = Path(self.temp.name) / "cache"
+        with patch.dict(os.environ, {"OPENEMBEDDLINT_CACHE_DIR": str(cache_dir)}):
+            code1, doc1 = self.run_gate("-f", "a.c", "--baseline", "HEAD", "--detail")
+            self.assertEqual(code1, 0, doc1)
+            self.assertNotIn("baseline_cached", doc1["gate"])
+            code2, doc2 = self.run_gate("-f", "a.c", "--baseline", "HEAD", "--detail")
+            self.assertEqual(code2, 0, doc2)
+            self.assertTrue(doc2["gate"].get("baseline_cached"))
+            self.assertTrue(Path(doc2["gate"]["baseline_report"]).is_file())
+            code3, doc3 = self.run_gate("-f", "a.c", "--baseline", "HEAD", "--no-cache", "--detail")
+            self.assertEqual(code3, 0, doc3)
+            self.assertNotIn("baseline_cached", doc3["gate"])
+
+    def test_multifile_selector_and_parallel_jobs_are_deterministic(self):
+        (self.root / "b.c").write_text("int g(void) { return 0; }\n", encoding="utf-8")
+        self.commit()
+        self.database(("a.c", "b.c"))
+        code1, doc1 = self.run_gate("-f", "a.c", "b.c", "--baseline", "HEAD", "--jobs", "1", "--no-cache", "--detail")
+        code2, doc2 = self.run_gate("-f", "a.c", "b.c", "--baseline", "HEAD", "--jobs", "2", "--no-cache", "--detail")
+        self.assertEqual((code1, code2), (0, 0))
+        self.assertEqual(doc1["selected_files"], ["a.c", "b.c"])
+        self.assertEqual(doc1["gate"]["counts"], doc2["gate"]["counts"])
 
 
 if __name__ == "__main__":

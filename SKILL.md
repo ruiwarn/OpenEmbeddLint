@@ -19,7 +19,7 @@ Use the installed `openembeddlint` command for AI checks. First locate it with `
 
 For installation, follow [AI-assisted installation](README.md#ai-assisted-installation). A missing CLI is an installation issue; do not routinely bypass its isolated environment with the system Python. Invoke `scripts/c_verify.py` only for an explicitly required existing source integration, or after confirming the CLI is unavailable and installation cannot be completed within the authorized scope. Record the fallback reason and use an interpreter with the dependencies declared in `pyproject.toml`. A `FAIL`, `ERROR` or `INCOMPLETE` result is never a reason to switch entry points.
 
-Other selectors: repeat `-f`, use `-d <directory>`, `--git-staged`, `--git-modified`, or `--git-all`. Use `--allow-empty` only when an empty pre-commit scope is legitimate.
+Other selectors: repeat `-f` or pass multiple paths (`-f a.c b.c`), `-d <directory>`, `--git-staged`, `--git-modified`, or `--git-all`. Use `--allow-empty` only when an empty pre-commit scope is legitimate. Use `--jobs N` to control static analyzer concurrency, `--no-cache` to bypass the incremental baseline cache, and `--prune-temp` to remove stale default temp directories.
 
 Git selectors run an incremental gate against `HEAD` by default. `--git-staged` analyzes the actual index contents; the other Git selectors analyze a worktree snapshot. Use `--baseline <commit>` to choose another baseline or add comparison to an explicit `-f`/`-d` selection. Without a Git selector or baseline, explicit file/directory scans retain whole-file enforcement. Read [references/configuration.md](references/configuration.md#incremental-gates) before configuring incremental checks or interpreting legacy findings. Incremental mode requires Git and respects repository VCS access rules; it does not stage, commit, switch branches or alter the real index.
 
@@ -39,7 +39,7 @@ Default JSON is compact. A clean run is normally one line and omits optional SKI
 {"schema_version":1,"status":"PASS","complete":true,"files":2,"checks":5,"skipped":1}
 ```
 
-Use `--detail` for every diagnostic, absolute private tool path, command, exit code, log and coverage metric. Use `--format text` or `--format markdown` for people. Full logs and `report.json` are always written to a unique run directory; pass `--output-dir` to choose its parent.
+Use `--detail` for every diagnostic, absolute private tool path, command, exit code, log and coverage metric. Use `--actionable` or `--limit N` (`0` for unlimited) to view all actionable findings in compact mode without dumping legacy errors. Use `--format text` or `--format markdown` for people. Full logs and `report.json` are always written to a unique run directory; pass `--output-dir` to choose its parent.
 
 Runner-managed artifacts must stay outside the source repository in every project profile. The default is the system temporary directory; an explicit `--output-dir` inside the repository is rejected before allocation. Keep temporary database copies and adapter settings with the external run artifacts. To select another compilation database, use `--compdb`; do not clone `.c-verify.json` or discard distinct target configurations to bypass an error.
 

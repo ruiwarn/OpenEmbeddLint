@@ -2,17 +2,30 @@
 
 from __future__ import annotations
 
-import fnmatch
+from concurrent.futures import ThreadPoolExecutor
 import csv
+import fnmatch
 import glob
 import json
 import re
+import shutil
 import sys
 import xml.etree.ElementTree as ET
+from xml.sax.saxutils import escape as xml_escape
 from pathlib import Path
 from typing import Sequence
 
-from .compilation import SOURCE_SUFFIXES, compdb_sources, compilation_entries, expand_response_arguments, private_driver_arguments, private_driver_compile_args, split_compiler_command
+from .compilation import (
+    SOURCE_SUFFIXES,
+    compdb_sources,
+    compdb_system_includes,
+    compilation_entries,
+    expand_response_arguments,
+    find_compdb_entry,
+    private_driver_arguments,
+    resolve_entry_driver_arguments,
+    split_compiler_command,
+)
 from .installation import misra_rule_texts
 from .execution import (
     ERROR,
@@ -61,12 +74,35 @@ def is_context_error(issue: Issue) -> bool:
     return any(pattern in message for pattern in patterns)
 
 
-def append_issue(result: CheckResult, issue: Issue, suppressions: Sequence[dict]) -> None:
-    """Suppress only an exact rule/path/message scope and retain an audit record."""
+def _source_line(root: Path | None, file_path: str | None, line_no: int | None, cache: dict[str, list[str] | None]) -> str | None:
+    if root is None or not file_path or line_no is None or line_no < 1:
+        return None
+    if file_path not in cache:
+        candidate = Path(file_path)
+        resolved = candidate if candidate.is_absolute() else root / candidate
+        try:
+            cache[file_path] = resolved.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            cache[file_path] = None
+    lines = cache[file_path]
+    return lines[line_no - 1] if lines is not None and line_no <= len(lines) else None
+
+
+def append_issue(
+    result: CheckResult,
+    issue: Issue,
+    suppressions: Sequence[dict],
+    root: Path | None = None,
+    line_cache: dict[str, list[str] | None] | None = None,
+) -> None:
+    """Suppress only an exact rule/path/message/symbol/line scope and retain an audit record."""
+    cache = {} if line_cache is None else line_cache
     for suppression in suppressions:
         rule = suppression.get("check", "")
         path = suppression.get("path")
         message = suppression.get("message")
+        symbol = suppression.get("symbol")
+        line_pattern = suppression.get("line_pattern")
         reason = suppression.get("reason", "")
         if not rule or not reason or not fnmatch.fnmatchcase(issue.rule, rule):
             continue
@@ -74,6 +110,14 @@ def append_issue(result: CheckResult, issue: Issue, suppressions: Sequence[dict]
             continue
         if message and message not in issue.message:
             continue
+        if line_pattern or symbol:
+            src_line = _source_line(root, issue.file, issue.line, cache)
+            if line_pattern and (src_line is None or re.search(line_pattern, src_line) is None):
+                continue
+            if symbol:
+                sym_re = rf"(?<!\w){re.escape(symbol)}(?!\w)"
+                if not ((src_line and re.search(sym_re, src_line)) or re.search(sym_re, issue.message)):
+                    continue
         result.metrics.setdefault("suppressed", []).append({
             "issue": issue.__dict__.copy(),
             "reason": reason,
@@ -81,6 +125,41 @@ def append_issue(result: CheckResult, issue: Issue, suppressions: Sequence[dict]
         })
         return
     result.issues.append(issue)
+
+
+def effective_exclude_dirs(exclude_directories: Sequence[str], files: Sequence[Path], root: Path) -> list[str]:
+    selected_rel = [relative(file, root).replace("\\", "/") for file in files]
+    patterns: list[str] = []
+    for raw in exclude_directories:
+        pattern = raw.strip().replace("\\", "/").strip("/")
+        if not pattern or pattern == ".git":
+            continue
+        if any(item == pattern or item.startswith(pattern + "/") for item in selected_rel):
+            continue
+        if pattern not in patterns:
+            patterns.append(pattern)
+    return patterns
+
+
+def is_excluded_header_issue(issue: Issue, root: Path, exclude_dirs: Sequence[str], selected_rel: set[str]) -> bool:
+    if is_context_error(issue) or not issue.file:
+        return False
+    rel = issue.file.replace("\\", "/")
+    if rel in selected_rel:
+        return False
+    path = Path(rel)
+    if path.is_absolute():
+        try:
+            resolved_root = root.resolve()
+            resolved_path = path.resolve()
+            if not resolved_path.is_relative_to(resolved_root):
+                return True
+            rel = resolved_path.relative_to(resolved_root).as_posix()
+        except OSError:
+            return True
+        if rel in selected_rel:
+            return False
+    return any(rel == pattern or rel.startswith(pattern + "/") for pattern in exclude_dirs)
 
 
 def parse_clang_tidy(output: str, root: Path, dimension: str) -> tuple[list[Issue], list[str]]:
@@ -147,18 +226,47 @@ def misra_arguments(toolchain, logs):
         arguments.append("--rule-texts=" + staged_texts.name)
     specification = logs / "misra-addon.json"
     specification.write_text(json.dumps({"script": str(addon), "args": arguments}), encoding="utf-8")
-    build = logs / "cppcheck-build"
-    build.mkdir(exist_ok=True)
-    return ["--addon=" + str(specification), "--addon-python=" + sys.executable, "--cppcheck-build-dir=" + str(build)]
+    return ["--addon=" + str(specification), "--addon-python=" + sys.executable]
 
 
-def record_cppcheck_output(result, process, root, file, suppressions):
+def _write_cppcheck_suppressions(
+    logs: Path, root: Path, exclude_dirs: Sequence[str], external_includes: Sequence[Path],
+) -> Path | None:
+    patterns: list[str] = []
+    resolved_root = root.resolve()
+    for excl in exclude_dirs:
+        candidate = resolved_root / excl
+        if candidate.exists():
+            patterns.append(candidate.resolve().as_posix() + "/*")
+        patterns.append(excl + "/*")
+    for inc in sorted(external_includes, key=lambda p: p.as_posix()):
+        if not inc.is_relative_to(resolved_root):
+            patterns.append(inc.as_posix() + "/*")
+    if not patterns:
+        return None
+    seen: list[str] = []
+    for pattern in patterns:
+        if pattern not in seen:
+            seen.append(pattern)
+    logs.mkdir(parents=True, exist_ok=True)
+    path = logs / "cppcheck-suppressions.xml"
+    body = "".join(f"  <suppress><id>*</id><fileName>{xml_escape(pattern)}</fileName></suppress>\n" for pattern in seen)
+    path.write_text(f'<?xml version="1.0" encoding="UTF-8"?>\n<suppressions>\n{body}</suppressions>\n', encoding="utf-8")
+    return path
+
+
+def record_cppcheck_output(
+    result, process, root, file, suppressions,
+    *, exclude_dirs: Sequence[str] = (), selected_rel: set[str] | None = None, line_cache: dict | None = None,
+):
     try:
         document = ET.fromstring(process.stderr or "<errors></errors>")
     except ET.ParseError as error:
         result.status = ERROR
         result.reason = f"cannot parse cppcheck XML: {error}"
         return
+    excluded = 0
+    selected = selected_rel or set()
     for item in document.iter("error"):
         rule = item.get("id", "cppcheck")
         severity = item.get("severity", "warning")
@@ -175,7 +283,12 @@ def record_cppcheck_output(result, process, root, file, suppressions):
         if is_context_error(issue):
             result.status = ERROR
             result.reason = f"compilation context is incomplete: {issue.message}"
-        append_issue(result, issue, suppressions)
+        elif is_excluded_header_issue(issue, root, exclude_dirs, selected):
+            excluded += 1
+            continue
+        append_issue(result, issue, suppressions, root=root, line_cache=line_cache)
+    if excluded:
+        result.metrics["excluded_header_diagnostics"] = result.metrics.get("excluded_header_diagnostics", 0) + excluded
     if process.exit_code != 0:
         result.status = ERROR
         result.reason = f"cppcheck exited {process.exit_code}"
@@ -213,7 +326,9 @@ def cppcheck_context(compdb, config, root, logs):
 def run_cppcheck(
     files: Sequence[Path], root: Path, toolchain: Toolchain, config: dict, timeout_s: float, logs: Path, required: bool,
     compdb: Path | None = None, suppressions: Sequence[dict] = (),
+    exclude_directories: Sequence[str] = (), jobs: int = 1, driver_cache: dict | None = None,
 ) -> CheckResult:
+    original_compdb = compdb
     try:
         executable = toolchain.require("cppcheck")
         compdb, extra_arguments = cppcheck_context(compdb, config, root, logs)
@@ -244,7 +359,28 @@ def run_cppcheck(
     except (OSError, ValueError) as error:
         result.status, result.reason = ERROR, str(error)
         return result
-    for file, project_file in cases:
+
+    exclude_dirs = effective_exclude_dirs(exclude_directories, files, root)
+    selected_rel = {relative(file, root).replace("\\", "/") for file in files}
+    probed_driver_args: list[str] = []
+    if original_compdb is not None:
+        cache = {} if driver_cache is None else driver_cache
+        try:
+            for file, _ in cases:
+                entry = find_compdb_entry(original_compdb, file)
+                if entry is not None:
+                    d_args, _ = resolve_entry_driver_arguments(entry, toolchain, file.suffix.lower() != ".c", Path(entry["directory"]), cache=cache)
+                    probed_driver_args.extend(d_args)
+        except (ToolUnavailable, ValueError) as error:
+            result.status = ERROR
+            result.reason = str(error)
+            return result
+    external_includes = compdb_system_includes(original_compdb, probed_driver_args) if (original_compdb or probed_driver_args) else set()
+    suppress_xml = _write_cppcheck_suppressions(logs, root, exclude_dirs, sorted(external_includes)) if (exclude_dirs or external_includes) else None
+    environment = toolchain.environment()
+
+    tasks = []
+    for index, (file, project_file) in enumerate(cases):
         argv = [
             executable,
             f"--enable={config.get('cppcheck_enable', 'warning,performance,portability,style')}",
@@ -253,21 +389,45 @@ def run_cppcheck(
             "--xml",
             "--xml-version=2",
         ]
+        if suppress_xml is not None:
+            argv.append(f"--suppress-xml={suppress_xml}")
         argv.extend(extra_arguments)
-        if file.suffix.lower() == ".c":
+        case_build = None
+        if misra and file.suffix.lower() == ".c":
+            case_build = logs / f"cppcheck-build-{index}"
+            case_build.mkdir(parents=True, exist_ok=True)
             argv.extend(misra)
+            argv.append("--cppcheck-build-dir=" + str(case_build))
         if project_file is not None:
             # Cppcheck filters its original compdb spelling (e.g. /var, not /private/var).
             argv.extend([f"--project={compdb}", f"--file-filter={project_file}"])
         else:
             argv.append(file)
-        process = run_process(
-            argv,
-            cwd=logs if misra else root,
-            timeout_s=timeout_s,
-            log_path=logs / f"cppcheck-{len(result.metrics.get('runs', []))}.log",
-            extra_env=toolchain.environment(),
-        )
+        tasks.append((index, file, argv, case_build))
+
+    def _run_case(item):
+        index, file, argv, case_build = item
+        try:
+            process = run_process(
+                argv,
+                cwd=logs if misra else root,
+                timeout_s=timeout_s,
+                log_path=logs / f"cppcheck-{index}.log",
+                extra_env=environment,
+            )
+            return index, file, process
+        finally:
+            if case_build is not None:
+                shutil.rmtree(case_build, ignore_errors=True)
+
+    if jobs > 1 and len(tasks) > 1:
+        with ThreadPoolExecutor(max_workers=min(jobs, len(tasks))) as pool:
+            completed = list(pool.map(_run_case, tasks))
+    else:
+        completed = [_run_case(item) for item in tasks]
+
+    line_cache: dict[str, list[str] | None] = {}
+    for _, file, process in completed:
         result.metrics.setdefault("runs", []).append(_run_logs(process, root))
         result.duration_s += process.duration_s
         result.files.append(relative(file, root))
@@ -275,7 +435,10 @@ def run_cppcheck(
             result.status = ERROR
             result.reason = process.start_error or f"timeout after {timeout_s}s"
             continue
-        record_cppcheck_output(result, process, root, file, suppressions)
+        record_cppcheck_output(
+            result, process, root, file, suppressions,
+            exclude_dirs=exclude_dirs, selected_rel=selected_rel, line_cache=line_cache,
+        )
     if result.status == PASS and any(issue.severity == "error" for issue in result.issues):
         result.status = FAIL
     result.command = [str(executable), "<selected files>"]
@@ -305,7 +468,10 @@ def clang_tidy_config(file: Path, root: Path, skill_dir: Path) -> Path:
     return skill_dir / "defaults" / ".clang-tidy"
 
 
-def record_tidy_output(result: CheckResult, process: ProcessResult, root: Path, suppressions: Sequence[dict], timeout_s: float) -> None:
+def record_tidy_output(
+    result: CheckResult, process: ProcessResult, root: Path, suppressions: Sequence[dict], timeout_s: float,
+    *, exclude_dirs: Sequence[str] = (), selected_rel: set[str] | None = None, line_cache: dict | None = None,
+) -> None:
     output = process.stdout + "\n" + process.stderr
     issues, unparsed = parse_clang_tidy(output, root, "correctness")
     raw_error = any(issue.severity == "error" for issue in issues)
@@ -313,8 +479,15 @@ def record_tidy_output(result: CheckResult, process: ProcessResult, root: Path, 
     if context_errors:
         result.status = ERROR
         result.reason = "compilation context is incomplete: " + context_errors[0].message
+    excluded = 0
+    selected = selected_rel or set()
     for issue in issues:
-        append_issue(result, issue, suppressions)
+        if not is_context_error(issue) and is_excluded_header_issue(issue, root, exclude_dirs, selected):
+            excluded += 1
+            continue
+        append_issue(result, issue, suppressions, root=root, line_cache=line_cache)
+    if excluded:
+        result.metrics["excluded_header_diagnostics"] = result.metrics.get("excluded_header_diagnostics", 0) + excluded
     if process.timed_out or process.start_error or (unparsed and not raw_error) or (process.exit_code != 0 and not raw_error):
         result.status = ERROR
         result.reason = process.start_error or "; ".join(unparsed) or (f"timeout after {timeout_s}s" if process.timed_out else f"clang-tidy exited {process.exit_code}")
@@ -332,6 +505,9 @@ def run_clang_tidy(
     suppressions: Sequence[dict] = (),
     checks_override: str | None = None,
     header_filter: str | None = None,
+    exclude_directories: Sequence[str] = (),
+    jobs: int = 1,
+    driver_cache: dict | None = None,
 ) -> CheckResult:
     check_id = "clang-tidy"
     try:
@@ -354,13 +530,25 @@ def run_clang_tidy(
         result.status = ERROR if required else SKIP
         result.reason = "; ".join(gaps) or "no C/C++ translation units selected"
         return result
+
+    cache = {} if driver_cache is None else driver_cache
+    prepared = []
     for file in selected:
-        driver_args = []
+        driver_args: list[str] = []
+        is_cpp = file.suffix.lower() != ".c"
         try:
-            compile_args = [] if compdb is None else private_driver_compile_args(compdb, file, toolchain)
-            if compile_args is not None:
-                driver_args, query = private_driver_arguments(toolchain, file.suffix.lower() != ".c", root, compile_args)
+            if compdb is None:
+                key = ("private", is_cpp, ())
+                if key not in cache:
+                    cache[key] = private_driver_arguments(toolchain, is_cpp, root, [])
+                driver_args, query = cache[key]
                 result.metrics.setdefault("driver_queries", []).append(query)
+            else:
+                entry = find_compdb_entry(compdb, file)
+                if entry is not None:
+                    driver_args, query = resolve_entry_driver_arguments(entry, toolchain, is_cpp, Path(entry["directory"]), cache=cache)
+                    if query is not None:
+                        result.metrics.setdefault("driver_queries", []).append(query)
         except (ToolUnavailable, ValueError) as error:
             result.status = ERROR
             result.reason = str(error)
@@ -373,20 +561,41 @@ def run_clang_tidy(
         if compdb:
             argv[1:1] = ["-p", str(compdb.parent)]
         else:
-            argv.extend(["--", "-std=c++17" if file.suffix.lower() != ".c" else "-std=c11", f"-I{root}", *driver_args])
+            argv.extend(["--", "-std=c++17" if is_cpp else "-std=c11", f"-I{root}", *driver_args])
         if header_filter is not None:
             argv.insert(1, f"--header-filter={header_filter}")
+        prepared.append((len(prepared), file, argv))
+
+    environment = toolchain.environment()
+
+    def _run_tidy(item):
+        index, file, argv = item
         process = run_process(
             argv,
             cwd=root,
             timeout_s=timeout_s,
-            log_path=logs / f"clang-tidy-{len(result.metrics.get('runs', []))}.log",
-            extra_env=toolchain.environment(),
+            log_path=logs / f"clang-tidy-{index}.log",
+            extra_env=environment,
         )
+        return index, file, process
+
+    if jobs > 1 and len(prepared) > 1:
+        with ThreadPoolExecutor(max_workers=min(jobs, len(prepared))) as pool:
+            completed = list(pool.map(_run_tidy, prepared))
+    else:
+        completed = [_run_tidy(item) for item in prepared]
+
+    exclude_dirs = effective_exclude_dirs(exclude_directories, files, root)
+    selected_rel = {relative(file, root).replace("\\", "/") for file in files}
+    line_cache: dict[str, list[str] | None] = {}
+    for _, file, process in completed:
         result.metrics.setdefault("runs", []).append(_run_logs(process, root))
         result.duration_s += process.duration_s
         result.files.append(relative(file, root))
-        record_tidy_output(result, process, root, suppressions, timeout_s)
+        record_tidy_output(
+            result, process, root, suppressions, timeout_s,
+            exclude_dirs=exclude_dirs, selected_rel=selected_rel, line_cache=line_cache,
+        )
     if result.status != ERROR and any(issue.severity == "error" for issue in result.issues):
         result.status = FAIL
     result.command = [str(executable), "<selected translation units>"]
@@ -487,7 +696,7 @@ def _format_config(file: Path, root: Path, explicit: str | None) -> Path | None:
 
 
 def run_clang_format(
-    files: Sequence[Path], root: Path, toolchain: Toolchain, config: dict, timeout_s: float, logs: Path
+    files: Sequence[Path], root: Path, toolchain: Toolchain, config: dict, timeout_s: float, logs: Path, jobs: int = 1,
 ) -> CheckResult:
     required = config.get("required", False)
     try:
@@ -496,18 +705,34 @@ def run_clang_format(
         return unavailable("clang-format", "style", required, str(error))
     result = CheckResult("clang-format", "style", PASS, required=required, tool=str(executable))
     missing = []
+    tasks = []
     for file in files:
         format_config = _format_config(file, root, config.get("config"))
         if format_config is None or not format_config.is_file():
             missing.append(relative(file, root))
             continue
         style = f"file:{format_config}"
+        tasks.append((len(tasks), file, style))
+
+    environment = toolchain.environment()
+
+    def _run_fmt(item):
+        index, file, style = item
         process = run_process(
             [executable, "--dry-run", "--Werror", f"--style={style}", file],
             cwd=root, timeout_s=timeout_s,
-            log_path=logs / f"clang-format-{len(result.metrics.get('runs', []))}.log",
-            extra_env=toolchain.environment(),
+            log_path=logs / f"clang-format-{index}.log",
+            extra_env=environment,
         )
+        return index, file, process
+
+    if jobs > 1 and len(tasks) > 1:
+        with ThreadPoolExecutor(max_workers=min(jobs, len(tasks))) as pool:
+            completed = list(pool.map(_run_fmt, tasks))
+    else:
+        completed = [_run_fmt(item) for item in tasks]
+
+    for _, file, process in completed:
         result.metrics.setdefault("runs", []).append(_run_logs(process, root))
         result.duration_s += process.duration_s
         result.files.append(relative(file, root))
@@ -570,8 +795,9 @@ def record_project_rule_output(result: CheckResult, process: ProcessResult, root
         issues = parse_project_diagnostics(process.stdout, root)
         if process.exit_code == 1 and not any(issue.severity == "error" for issue in issues):
             raise ValueError("project rule exit 1 requires an error diagnostic")
+        line_cache: dict[str, list[str] | None] = {}
         for issue in issues:
-            append_issue(result, issue, suppressions)
+            append_issue(result, issue, suppressions, root=root, line_cache=line_cache)
         if any(issue.severity == "error" for issue in result.issues):
             result.status = FAIL
     except (TypeError, ValueError) as error:

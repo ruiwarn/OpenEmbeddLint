@@ -69,6 +69,19 @@ def checkout_tree(repo, destination, index, ref=None, entries=None, timeout=180)
     git(repo, "checkout-index", "--all", "--prefix=" + destination.as_posix() + "/", env=environment, timeout=timeout)
 
 
+def copy_and_digest(source, target):
+    if source.is_symlink():
+        link_target = os.readlink(source)
+        os.symlink(link_target, target)
+        return "link:" + link_target
+    digest = hashlib.sha256()
+    with source.open("rb") as src, target.open("wb") as dst:
+        for block in iter(lambda: src.read(1024 * 1024), b""):
+            digest.update(block)
+            dst.write(block)
+    return digest.hexdigest()
+
+
 def copy_worktree_file(repo, destination, name):
     source = safe_path(repo, name)
     target = safe_path(destination, name)
@@ -119,11 +132,17 @@ def capture(root, baseline, staged, destination, extra_files=(), timeout=180):
         names.update(name for name in POLICY_FILES if (root / name).is_file())
         directories = {parent for name in names - {""} for parent in Path(name).parents}
         names.update((directory / name).as_posix() for directory in directories for name in POLICY_FILES if (repo / directory / name).is_file())
-        fingerprints = {name: file_digest(safe_path(repo, name)) for name in names - {""}}
         for name in sorted(names - {""}):
-            copy_worktree_file(repo, after, name)
-        if any(file_digest(safe_path(repo, name)) != digest or file_digest(safe_path(after, name)) != digest for name, digest in fingerprints.items()):
-            raise ValueError("worktree changed while creating the verification snapshot")
+            source = safe_path(repo, name)
+            target = safe_path(after, name)
+            if not source.exists() and not source.is_symlink():
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not source.is_file() and not source.is_symlink():
+                raise ValueError("unsupported worktree entry: " + name)
+            copied_digest = copy_and_digest(source, target)
+            if file_digest(source) != copied_digest:
+                raise ValueError("worktree changed while creating the verification snapshot")
     if git(repo, "ls-files", "--stage", "-z", timeout=timeout) != index_before:
         raise ValueError("index changed while creating the verification snapshot")
     if git(repo, "rev-parse", "HEAD", timeout=timeout).decode().strip() != head_sha:

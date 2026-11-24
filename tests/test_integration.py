@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -16,7 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from cverify.checks import run_coverage, run_project_command
 from cverify.cli import main
-from cverify.execution import FAIL, PASS, Toolchain, run_process
+from cverify.compilation import query_driver_arguments, resolve_entry_driver_arguments
+from cverify.execution import FAIL, PASS, ProcessResult, Toolchain, run_process
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
@@ -40,7 +42,14 @@ class StaticIntegrationTests(unittest.TestCase):
         self.output = Path(self.temporary.name) / "artifacts"
 
     def tearDown(self):
-        self.temporary.cleanup()
+        for attempt in range(5):
+            try:
+                self.temporary.cleanup()
+                return
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.2)
 
     def compdb(self, filename="good.c"):
         source = self.root / filename
@@ -421,7 +430,14 @@ class RuntimeIntegrationTests(unittest.TestCase):
         self.executable_suffix = ".exe" if self.toolchain.is_windows else ""
 
     def tearDown(self):
-        self.temporary.cleanup()
+        for attempt in range(5):
+            try:
+                self.temporary.cleanup()
+                return
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.2)
 
     def command(self, check_id, kind, argv, env=None):
         result = run_project_command(
@@ -511,6 +527,62 @@ class RuntimeIntegrationTests(unittest.TestCase):
         run = self.command("fuzz-coverage-run", "fuzz", [str(output), str(corpus), "-runs=100"])
         self.assertEqual(run.status, PASS, run.reason)
         self.assertIn("cov:", Path(run.log).read_text(encoding="utf-8"))
+
+    def test_external_gnu_driver_probe_and_graceful_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inc = root / "sdk include" / "include"
+            fw = root / "Frameworks"
+            inc.mkdir(parents=True)
+            fw.mkdir()
+            ext_gcc = root / "bin" / "arm-none-eabi-gcc.exe"
+            ext_gcc.parent.mkdir()
+            ext_gcc.write_bytes(b"")
+            fake_stderr = (
+                "Target: arm-none-eabi\n"
+                "#include <...> search starts here:\n"
+                f" {inc}\n"
+                f" {fw} (framework directory)\n"
+                "End of search list.\n"
+            )
+            with patch("cverify.compilation.run_process", return_value=ProcessResult(["arm-none-eabi-gcc"], 0, "", fake_stderr, 0.01)):
+                args, rec = resolve_entry_driver_arguments({"directory": str(root), "file": "a.c", "arguments": [str(ext_gcc), "-mcpu=cortex-m0", "-DFOO=1", "-c", "a.c"]}, Toolchain(SKILL_DIR), False, root)
+            self.assertEqual(args, ["--target=arm-none-eabi", f"-isystem{inc.resolve().as_posix()}", f"-iframework{fw.resolve().as_posix()}"])
+            self.assertFalse(rec.get("fallback"))
+            with patch("cverify.compilation.run_process", return_value=ProcessResult(["arm-none-eabi-gcc"], 1, "", "unsupported", 0.01)):
+                fb_args, fb_rec = resolve_entry_driver_arguments({"directory": str(root), "file": "a.c", "arguments": [str(ext_gcc), "-c", "a.c"]}, Toolchain(SKILL_DIR), False, root)
+            self.assertEqual(fb_args, ["--target=arm-none-eabi"])
+            self.assertTrue(fb_rec.get("fallback"))
+            with patch("cverify.compilation.run_process", return_value=ProcessResult(["clang"], 0, "", fake_stderr, 0.01)):
+                q_args, _ = query_driver_arguments(ext_gcc, True, root)
+            self.assertEqual(q_args[0], "--target=arm-none-eabi")
+
+    def test_actionable_and_prune_temp_cli_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory) / "tmp"
+            stale = temp / "c-verify-old123"
+            explicit = temp / "run-keep123"
+            stale.mkdir(parents=True)
+            (stale / "artifact.txt").write_text("stale", encoding="utf-8")
+            explicit.mkdir(parents=True)
+            with patch("cverify.cli.tempfile.gettempdir", return_value=str(temp)):
+                status, doc = invoke(["--prune-temp"])
+            self.assertEqual(status, 0, doc)
+            self.assertEqual((doc["pruned_dirs"], doc["freed_bytes"] >= 5), (1, True))
+            self.assertFalse(stale.exists())
+            self.assertTrue(explicit.exists())
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "proj"
+            root.mkdir()
+            (root / "many.c").write_text("\n".join(f"int f{i}(void) {{ return {10 + i}; }}" for i in range(8)) + "\n", encoding="utf-8")
+            compiler = Toolchain(SKILL_DIR).require("clang")
+            (root / "compile_commands.json").write_text(json.dumps([{"directory": str(root), "file": "many.c", "arguments": [str(compiler), "-std=c11", "-c", "many.c"]}]), encoding="utf-8")
+            (root / ".clang-tidy").write_text(json.dumps({"Checks": "-*,readability-magic-numbers", "WarningsAsErrors": "*"}), encoding="utf-8")
+            status, compact = invoke(["--project-root", str(root), "-f", "many.c", "--skip-cppcheck", "--skip-format", "--skip-cyclomatic", "--actionable", "--output-dir", str(Path(directory) / "out")])
+            self.assertEqual(status, 1, compact)
+            self.assertEqual(len(compact["findings"][0]["issues"]), 8)
+            self.assertNotIn("issues_omitted", compact)
 
 
 if __name__ == "__main__":

@@ -33,3 +33,13 @@ def misra_rule_texts():
     if path.exists() and not path.is_file():
         raise ValueError("local MISRA rule texts path is not a file: " + str(path))
     return path.resolve()
+
+
+def cache_directory():
+    configured = os.environ.get("OPENEMBEDDLINT_CACHE_DIR")
+    if configured:
+        path = Path(configured)
+        if not path.is_absolute():
+            raise ValueError("OPENEMBEDDLINT_CACHE_DIR must be an absolute cache directory")
+        return path.resolve()
+    return user_data_directory() / "cache"

@@ -6,6 +6,14 @@ from pathlib import Path
 
 
 METRIC_RULES = {"readability-function-cognitive-complexity", "readability-function-size", "cyclomatic-complexity", "function-nloc", "function-length"}
+UNSTABLE_CROSS_DECLARATION_RULES = {"misra-c2012-5.8", "misra-c2012-5.9"}
+
+
+def normalize_message(message, root_strings):
+    for root_string in root_strings:
+        if root_string in message:
+            message = message.replace(root_string, "<project>")
+    return message
 
 
 def metric_values(issue):
@@ -90,7 +98,7 @@ def matching_metric(records, current, old_name, line_map, used):
     return mapped or candidates
 
 
-def same_trace(before, after, before_root, after_root, renames, maps):
+def same_trace(before, after, before_root, after_root, renames, maps, bytes_equal=None):
     if len(before) != len(after):
         return False
     for old, new in zip(before, after):
@@ -102,6 +110,16 @@ def same_trace(before, after, before_root, after_root, renames, maps):
             return False
         before_source, after_source = source_path(before_root, old_name), source_path(after_root, name)
         if before_source and after_source:
+            pair = (old_name, name)
+            equal = bytes_equal.get(pair) if bytes_equal is not None else None
+            if equal is None:
+                equal = before_source.read_bytes() == after_source.read_bytes()
+                if bytes_equal is not None:
+                    bytes_equal[pair] = equal
+            if equal:
+                if new.get("line") != old.get("line"):
+                    return False
+                continue
             if name not in maps:
                 maps[name] = unchanged_lines(before_source, after_source)
             if maps[name].get(new.get("line")) != old.get("line"):
@@ -111,44 +129,81 @@ def same_trace(before, after, before_root, after_root, renames, maps):
     return True
 
 
-def classify_issue(records, current, before_root, after_root, renames, used, maps):
+def _baseline_coords(issue):
+    return {"file": issue.get("file"), "line": issue.get("line"), "column": issue.get("column")}
+
+
+def classify_issue(records, current, before_root, after_root, renames, used, maps, index=None):
     issue = current["issue"]
     name = issue.get("file")
     after = source_path(after_root, name)
     if not after or type(issue.get("line")) is not int or issue["line"] < 1:
-        return "unattributed", [], "diagnostic has no versioned source location"
+        return "unattributed", [], "diagnostic has no versioned source location", None
     old_name = renames.get(name, name)
     before = source_path(before_root, old_name)
     if before is None:
-        return "new", [], "source did not exist in the baseline"
-    if name not in maps:
-        maps[name] = unchanged_lines(before, after)
-    line_map = maps[name]
+        return "new", [], "source did not exist in the baseline", None
+    bytes_equal = index["bytes_equal"] if index else {}
+    pair = (old_name, name)
+    same_bytes = bytes_equal.get(pair)
+    if same_bytes is None:
+        same_bytes = before.read_bytes() == after.read_bytes()
+        bytes_equal[pair] = same_bytes
+    if same_bytes:
+        line_map = None
+    else:
+        if name not in maps:
+            maps[name] = unchanged_lines(before, after)
+        line_map = maps[name]
+
+    def _old_line(line_no):
+        return line_no if line_map is None else line_map.get(line_no)
+
     if issue["rule"] in METRIC_RULES:
-        candidates = matching_metric(records, current, old_name, line_map, used)
+        if index is not None:
+            function = re.search(r"function '(.+?)'", issue["message"])
+            if function:
+                pool = [idx for idx in index["by_metric"].get((old_name, current["check"], issue["rule"], function[1]), ()) if idx not in used]
+                expected = _old_line(issue.get("line"))
+                mapped = [idx for idx in pool if records[idx]["issue"].get("line") == expected]
+                candidates = mapped or pool
+            else:
+                candidates = []
+        else:
+            candidates = matching_metric(records, current, old_name, line_map or {}, used)
         if len(candidates) == 1:
             other = records[candidates[0]]["issue"]
             classification = metric_change(other, issue)
             if other["severity"] != "error":
                 classification = "worsened"
-            return classification, candidates, "compared the same function's metric evidence"
+            return classification, candidates, "compared the same function's metric evidence", None
         if candidates:
-            return "unattributed", candidates, "function identity is ambiguous"
-    candidates = [index for index, record in enumerate(records) if index not in used and record["issue"].get("file") == old_name and issue_key(record["check"], record["issue"], before_root) == issue_key(current["check"], issue, after_root)]
-    same_line = [index for index in candidates if records[index]["issue"].get("line") == line_map.get(issue["line"])]
-    exact = [index for index in same_line if records[index]["issue"].get("column") == issue.get("column")]
-    if not exact and len(same_line) == 1 and before.read_bytes() == after.read_bytes():
+            return "unattributed", candidates, "function identity is ambiguous", _baseline_coords(records[candidates[0]]["issue"])
+
+    if index is not None:
+        norm = normalize_message(issue["message"], index["after_strs"])
+        candidates = [idx for idx in index["by_key"].get((old_name, current["check"], issue["rule"], norm), ()) if idx not in used]
+    else:
+        candidates = [idx for idx, record in enumerate(records) if idx not in used and record["issue"].get("file") == old_name and issue_key(record["check"], record["issue"], before_root) == issue_key(current["check"], issue, after_root)]
+    expected_line = _old_line(issue["line"])
+    same_line = [idx for idx in candidates if records[idx]["issue"].get("line") == expected_line]
+    exact = [idx for idx in same_line if records[idx]["issue"].get("column") == issue.get("column")]
+    if not exact and len(same_line) == 1 and same_bytes:
         exact = same_line
     if len(exact) == 1:
         other = records[exact[0]]["issue"]
-        if not same_trace(other.get("notes", []), issue.get("notes", []), before_root, after_root, renames, maps):
-            return "unattributed", exact, "diagnostic trace changed"
-        return "existing" if other["severity"] == "error" else "worsened", exact, "same diagnostic on an unchanged source line"
+        if not same_trace(other.get("notes", []), issue.get("notes", []), before_root, after_root, renames, maps, bytes_equal):
+            return "unattributed", exact, "diagnostic trace changed", _baseline_coords(other)
+        return ("existing" if other["severity"] == "error" else "worsened"), exact, "same diagnostic on an unchanged source line", None
     if candidates:
-        target_line = line_map.get(issue["line"], issue["line"])
+        target_line = issue["line"] if line_map is None else line_map.get(issue["line"], issue["line"])
         best = min(candidates, key=lambda idx: abs((records[idx]["issue"].get("line") or 0) - target_line))
-        return "unattributed", [best], "similar old diagnostic moved or its source line changed"
-    return "new", [], "no matching diagnostic under the same rule configuration"
+        matched_issue = records[best]["issue"]
+        if issue["rule"] in UNSTABLE_CROSS_DECLARATION_RULES and same_bytes and not issue.get("notes") and not matched_issue.get("notes"):
+            classification = "existing" if matched_issue["severity"] == "error" else "worsened"
+            return classification, [best], "same cross-declaration diagnostic in an unchanged file", None
+        return "unattributed", [best], "similar old diagnostic moved or its source line changed", _baseline_coords(matched_issue)
+    return "new", [], "no matching diagnostic under the same rule configuration", None
 
 
 def execution_gaps(document, label):
@@ -162,9 +217,27 @@ def execution_gaps(document, label):
     return gaps
 
 
+def _build_index(records, before_root, after_root):
+    before_strs = (str(before_root), before_root.as_posix())
+    after_strs = (str(after_root), after_root.as_posix())
+    by_key = {}
+    by_metric = {}
+    for idx, record in enumerate(records):
+        other = record["issue"]
+        file_name = other.get("file")
+        norm = normalize_message(other["message"], before_strs)
+        by_key.setdefault((file_name, record["check"], other["rule"], norm), []).append(idx)
+        if other["rule"] in METRIC_RULES:
+            func = re.search(r"function '(.+?)'", other["message"])
+            if func:
+                by_metric.setdefault((file_name, record["check"], other["rule"], func[1]), []).append(idx)
+    return {"by_key": by_key, "by_metric": by_metric, "after_strs": after_strs, "bytes_equal": {}}
+
+
 def compare_reports(before, after, before_root, after_root, renames=None, gaps=()):
     before_root, after_root = Path(before_root).resolve(), Path(after_root).resolve()
     old = report_issues(before, before_root)
+    index = _build_index(old, before_root, after_root)
     used, maps, classified = set(), {}, []
     missing = [*gaps, *execution_gaps(before, "baseline"), *execution_gaps(after, "current")]
     required_failures = []
@@ -175,18 +248,22 @@ def compare_reports(before, after, before_root, after_root, renames=None, gaps=(
             missing.append(check["id"] + ": failed without a structured error diagnostic")
     new = [record for record in report_issues(after, after_root) if record["issue"]["severity"] == "error" or record["check"] in required_failures]
     for current in new:
+        matched_baseline = None
         if current["check"] in required_failures:
             classification, matches, reason = "required", [], "this check always applies to the current snapshot"
         elif missing:
             classification, matches, reason = "unattributed", [], "analysis evidence is incomplete"
         else:
-            classification, matches, reason = classify_issue(old, current, before_root, after_root, renames or {}, used, maps)
+            classification, matches, reason, matched_baseline = classify_issue(old, current, before_root, after_root, renames or {}, used, maps, index=index)
         used.update(matches)
-        classified.append({**copy.deepcopy(current), "classification": classification, "reason": reason})
+        entry = {**copy.deepcopy(current), "classification": classification, "reason": reason}
+        if matched_baseline is not None:
+            entry["matched_baseline"] = matched_baseline
+        classified.append(entry)
     counts = dict.fromkeys(("new", "worsened", "existing", "unattributed", "resolved", "required"), 0)
     counts.update(Counter(record["classification"] for record in classified))
     if not missing and not counts["unattributed"]:
-        counts["resolved"] = sum(index not in used and record["issue"]["severity"] == "error" for index, record in enumerate(old))
+        counts["resolved"] = sum(idx not in used and record["issue"]["severity"] == "error" for idx, record in enumerate(old))
     complete = not missing and not counts["unattributed"]
     status = "FAIL" if counts["new"] or counts["worsened"] or required_failures else "PASS" if complete else "INCOMPLETE"
     return {"status": status, "complete": complete, "counts": counts, "issues": classified, "gaps": missing, "required_failures": required_failures}

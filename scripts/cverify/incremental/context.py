@@ -1,10 +1,11 @@
 import copy
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 import json
 import shlex
 from pathlib import Path
 
-from ..compilation import SOURCE_SUFFIXES, compilation_entries, compiler_name_arguments, expand_response_arguments, private_driver_arguments, private_driver_entry_args, split_compiler_command
+from ..compilation import SOURCE_SUFFIXES, compilation_entries, expand_response_arguments, resolve_entry_driver_arguments, sanitize_dependency_arguments, split_compiler_command
 from ..execution import run_process
 from .snapshots import file_digest
 
@@ -116,32 +117,46 @@ def dependency_arguments(arguments):
     return filtered
 
 
-def including_units(root, headers, database, config, toolchain, output, timeout, units=None):
-    selected, covered, gaps, queries, external = set(), set(), [], {}, set()
+def including_units(root, headers, database, config, toolchain, output, timeout, units=None, jobs=1, driver_cache=None):
+    selected, covered, gaps, queries, external = set(), set(), [], {} if driver_cache is None else driver_cache, set()
     entries = compilation_entries(database)
+    environment = toolchain.environment()
+    tasks = []
     for index, entry in enumerate(entries):
         source = Path(entry["file"])
         if source.suffix.lower() not in SOURCE_SUFFIXES:
             continue
-        if units is not None and source.relative_to(root).as_posix() not in units:
+        source_rel = source.relative_to(root).as_posix()
+        if units is not None and source_rel not in units:
             continue
-        compiler = toolchain.require("clang++" if source.suffix.lower() != ".c" else "clang")
-        forwarded = private_driver_entry_args(entry, toolchain)
-        key = (source.suffix.lower() != ".c", tuple(forwarded or []))
-        if forwarded is not None and key not in queries:
-            queries[key] = private_driver_arguments(toolchain, key[0], root, forwarded)[0]
-        driver = queries.get(key, []) if forwarded is not None else []
-        command = [compiler, *compiler_name_arguments(entry["arguments"][0]), *dependency_arguments(entry["arguments"]), *driver, *config["static"]["extra_args"], "-M", "-MG", "-MT", "cverify", "-MF", "-"]
-        process = run_process(command, cwd=Path(entry["directory"]), timeout_s=timeout, log_path=output / "dependencies" / (str(index) + ".log"), extra_env=toolchain.environment())
+        is_cpp = source.suffix.lower() != ".c"
+        compiler = toolchain.require("clang++" if is_cpp else "clang")
+        entry_dir = Path(entry["directory"])
+        driver, _ = resolve_entry_driver_arguments(entry, toolchain, is_cpp, entry_dir, cache=queries)
+        dep_flags = sanitize_dependency_arguments(entry["arguments"][1:])
+        command = [compiler, *driver, *dep_flags, *config["static"]["extra_args"], "-Wno-unused-command-line-argument", "-M", "-MG", "-MT", "cverify", "-MF", "-"]
+        tasks.append((index, source_rel, entry_dir, command))
+
+    def _run_dep(item):
+        index, source_rel, entry_dir, command = item
+        return index, source_rel, entry_dir, run_process(command, cwd=entry_dir, timeout_s=timeout, log_path=output / "dependencies" / f"{index}.log", extra_env=environment)
+
+    if jobs > 1 and len(tasks) > 1:
+        with ThreadPoolExecutor(max_workers=min(jobs, len(tasks))) as pool:
+            results = list(pool.map(_run_dep, tasks))
+    else:
+        results = [_run_dep(item) for item in tasks]
+
+    for _, source_rel, entry_dir, process in results:
         if process.exit_code != 0 or process.start_error or process.timed_out or ":" not in process.stdout:
-            gaps.append("dependency discovery failed: " + source.relative_to(root).as_posix())
+            gaps.append("dependency discovery failed: " + source_rel)
             continue
         names = shlex.split(process.stdout.split(":", 1)[1].replace("\\\n", " ").replace("\\\r\n", " "))
-        dependencies = {(Path(entry["directory"]) / name.replace("$$", "$" )).resolve() for name in names}
+        dependencies = {(entry_dir / name.replace("$$", "$")).resolve() for name in names}
         external.update(path for path in dependencies if not path.is_relative_to(root))
         matches = dependencies & headers
         if matches:
-            selected.add(source.relative_to(root).as_posix())
+            selected.add(source_rel)
             covered.update(matches)
     gaps.extend("no including translation unit found: " + path.relative_to(root).as_posix() for path in headers - covered)
     return selected, gaps, external

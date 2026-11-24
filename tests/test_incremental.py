@@ -139,6 +139,22 @@ class AttributionTests(unittest.TestCase):
         gate = self.compare(report([diagnostic(5001)]), report([diagnostic(5002)]), old_source, new_source)
         self.assertEqual((gate["status"], gate["counts"]["existing"]), ("PASS", 1))
 
+    def test_unattributed_records_matched_baseline_and_unchanged_cross_decl_drift(self):
+        old_line = report([diagnostic(1)])
+        new_line = report([diagnostic(1)])
+        gate = self.compare(old_line, new_line, "int f(void) { return 23; }\n", "int f(int x) { return x + 23; }\n")
+        self.assertEqual(gate["status"], "INCOMPLETE")
+        self.assertEqual(gate["issues"][0]["matched_baseline"], {"file": "a.c", "line": 1, "column": 5})
+
+        old_cross = report([diagnostic(10, "Rule Required 5.8", "misra-c2012-5.8")])
+        new_cross = report([diagnostic(42, "Rule Required 5.8", "misra-c2012-5.8")])
+        gate_ok = self.compare(old_cross, new_cross)
+        self.assertEqual((gate_ok["status"], gate_ok["counts"]["existing"]), ("PASS", 1))
+
+        new_two = report([diagnostic(42, "Rule Required 5.8", "misra-c2012-5.8"), diagnostic(80, "Rule Required 5.8", "misra-c2012-5.8")])
+        gate_grow = self.compare(old_cross, new_two)
+        self.assertEqual((gate_grow["status"], gate_grow["counts"]["new"], gate_grow["counts"]["existing"]), ("FAIL", 1, 1))
+
 
 if __name__ == "__main__":
     unittest.main()

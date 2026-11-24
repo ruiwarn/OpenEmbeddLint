@@ -25,7 +25,7 @@ Any executed `FAIL` makes the summary `FAIL`. Otherwise any `ERROR` makes it `ER
 
 ## Compact mode
 
-Compact JSON contains the summary and at most five relevant findings, five incomplete checks and three gap summaries. Messages are bounded to 240 characters. Omitted counts are explicit. Optional SKIP reasons collapse to a count; required incompleteness remains visible.
+Compact JSON contains the summary and at most five relevant findings by default (configurable via `--limit N`, or all findings via `--actionable` / `--limit 0`), five incomplete checks and three gap summaries. Messages are bounded to 240 characters. Omitted counts are explicit. Optional SKIP reasons collapse to a count; required incompleteness remains visible. `unattributed` findings include `matched_baseline` coordinates when a moved/changed baseline diagnostic matched.
 
 A clean run with no issues or evidence gaps uses only `schema_version`, `status`, `complete`, `files`, `checks`, and optional `skipped`. Use `--detail` or the saved `report.json` for all diagnostics and artifacts. Logs are never inlined wholesale merely because they exist.
 
@@ -33,7 +33,7 @@ Compact `checks` is an integer count; detailed `checks` is an array. Do not iter
 
 ## Incremental outcomes
 
-With `gate` present, its status/completeness controls the process exit code. `summary.status` continues to describe all current scan findings, including legacy errors. Compact top-level `status`/`complete` describe the gate, and `scan_status`/`scan_complete` describe the underlying scan. Compact findings contain `classification` and `check`; unchanged legacy findings stay in the detailed report.
+With `gate` present, its status/completeness controls the process exit code. `summary.status` continues to describe all current scan findings, including legacy errors. Compact top-level `status`/`complete` describe the gate, and `scan_status`/`scan_complete` describe the underlying scan. Compact findings contain `classification`, `check`, and optional `matched_baseline`; unchanged legacy findings stay in the detailed report. `gate` also records optional `baseline_cached` (when reusing a cached baseline scan) and `advisory_non_source_changes` (for tracked non-build non-source files).
 
 Gate classifications are `new`, `worsened`, `existing`, `unattributed` and `required`; `resolved` is a count of unmatched old errors only when attribution completed. `required` identifies strict current-check diagnostics, not a claim that those diagnostics were introduced by this change. New/worsened errors or strict current failures yield `FAIL`; otherwise missing execution/context evidence or unattributed errors yield `INCOMPLETE`; otherwise the gate is `PASS`. A failing gate can still have `complete=false`.
 

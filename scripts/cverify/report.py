@@ -50,6 +50,13 @@ def exit_code(summary: dict) -> int:
     return 0
 
 
+def dump_report_json(document: dict) -> str:
+    total_issues = sum(len(check.get("issues", [])) for check in document.get("checks", []))
+    if total_issues > 1000:
+        return json.dumps(document, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(document, ensure_ascii=False, indent=2)
+
+
 def full_document(context: dict, checks: Sequence[CheckResult], requirements: list[dict]) -> dict:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -73,17 +80,31 @@ def _compact_issue(issue: dict) -> dict:
 
 def compact_document(document: dict, limit: int = 5) -> dict:
     summary = document["summary"]
+    cap = None if limit <= 0 else limit
     if "gate" in document:
         gate = document["gate"]
         actionable = [record for record in gate["issues"] if record["classification"] != "existing"]
+        shown = actionable if cap is None else actionable[:cap]
+        findings = []
+        for record in shown:
+            item = {"check": record["check"], "classification": record["classification"], **_compact_issue(record["issue"]), "reason": record["reason"]}
+            if record.get("matched_baseline"):
+                item["matched_baseline"] = record["matched_baseline"]
+            findings.append(item)
+        compact_gate = {"counts": gate["counts"], "baseline_commit": gate["baseline_commit"], "snapshot": gate["snapshot"], "required_failures": gate["required_failures"]}
+        if gate.get("baseline_cached"):
+            compact_gate["baseline_cached"] = True
+        if gate.get("advisory_non_source_changes"):
+            compact_gate["advisory_non_source_changes"] = gate["advisory_non_source_changes"][:5]
         return {
             "schema_version": SCHEMA_VERSION, "status": gate["status"], "complete": gate["complete"],
             "scan_status": summary["status"], "scan_complete": summary["complete"],
             "files": summary["files"], "checks": summary["checks"],
-            "gate": {"counts": gate["counts"], "baseline_commit": gate["baseline_commit"], "snapshot": gate["snapshot"], "required_failures": gate["required_failures"]},
-            "findings": [{"check": record["check"], "classification": record["classification"], **_compact_issue(record["issue"]), "reason": record["reason"]} for record in actionable[:limit]],
-            "issues_omitted": max(0, len(actionable) - limit),
-            "gap_summary": gate["gaps"][:3], "gaps_omitted": max(0, len(gate["gaps"]) - 3),
+            "gate": compact_gate,
+            "findings": findings,
+            "issues_omitted": 0 if cap is None else max(0, len(actionable) - cap),
+            "gap_summary": gate["gaps"][:3] if cap is not None else gate["gaps"],
+            "gaps_omitted": 0 if cap is None else max(0, len(gate["gaps"]) - 3),
             "report": document["report_path"],
         }
     result = {"schema_version": SCHEMA_VERSION, **summary}
@@ -98,7 +119,7 @@ def compact_document(document: dict, limit: int = 5) -> dict:
     remaining = summary["issues"]
     failures = []
     for check in relevant:
-        issues = check["issues"][:limit]
+        issues = check["issues"] if cap is None else check["issues"][:cap]
         remaining -= len(issues)
         failures.append({
             "id": check["id"],
@@ -106,7 +127,7 @@ def compact_document(document: dict, limit: int = 5) -> dict:
             **({"reason": check["reason"][:240]} if check.get("reason") else {}),
             **({"issues": [_compact_issue(issue) for issue in issues]} if issues else {}),
         })
-        if len(failures) >= limit:
+        if cap is not None and len(failures) >= cap:
             break
     if failures:
         result["findings"] = failures
@@ -118,13 +139,13 @@ def compact_document(document: dict, limit: int = 5) -> dict:
         if check["status"] in (ERROR, SKIP) and (check["required"] or check["status"] == ERROR)
     ]
     if incomplete:
-        result["not_completed"] = incomplete[:limit]
-        if len(incomplete) > limit:
-            result["not_completed_omitted"] = len(incomplete) - limit
+        result["not_completed"] = incomplete if cap is None else incomplete[:cap]
+        if cap is not None and len(incomplete) > cap:
+            result["not_completed_omitted"] = len(incomplete) - cap
     gaps = [gap for check in document["checks"] for gap in check["gaps"]]
     if gaps:
-        result["gap_summary"] = gaps[:3]
-        if len(gaps) > 3:
+        result["gap_summary"] = gaps if cap is None else gaps[:3]
+        if cap is not None and len(gaps) > 3:
             result["gaps_omitted"] = len(gaps) - 3
     if document.get("report_path") and summary["status"] != PASS:
         result["report"] = document["report_path"]
@@ -136,14 +157,19 @@ def _text_issue(issue: dict) -> str:
     return f"{location}: {issue['message']} [{issue['rule']}]"
 
 
-def render_text(document: dict, detail: bool) -> str:
+def render_text(document: dict, detail: bool, limit: int = 5) -> str:
     gate_lines = []
     if "gate" in document:
         gate = document["gate"]
         gate_lines = [f"Gate {gate['status']} | complete={gate['complete']} | scan={document['summary']['status']}", "counts: " + json.dumps(gate["counts"])]
         if not detail:
-            compact = compact_document(document)
-            gate_lines.extend(record["classification"] + ": " + _text_issue(record) for record in compact["findings"])
+            compact = compact_document(document, limit=limit)
+            for record in compact["findings"]:
+                line = record["classification"] + ": " + _text_issue(record)
+                if record.get("matched_baseline"):
+                    mb = record["matched_baseline"]
+                    line += f" (baseline {mb.get('file')}:{mb.get('line')})"
+                gate_lines.append(line)
             gate_lines.extend("gap: " + gap for gap in compact["gap_summary"])
             gate_lines.extend("failed: " + identifier for identifier in gate["required_failures"])
             gate_lines.append("detail: " + document["report_path"])
@@ -165,7 +191,7 @@ def render_text(document: dict, detail: bool) -> str:
             lines.extend(_text_issue(issue) for issue in check["issues"])
             lines.extend("gap: " + gap for gap in check["gaps"])
         return "\n".join(lines)
-    compact = compact_document(document)
+    compact = compact_document(document, limit=limit)
     summary = document["summary"]
     if summary["issues"] == 0 and summary["gaps"] == 0 and summary["status"] == PASS and summary["complete"]:
         return f"PASS | complete=true | files={summary['files']} checks={summary['checks']} skipped={summary['skipped']} suppressed={summary['suppressed']}"
@@ -184,13 +210,13 @@ def render_text(document: dict, detail: bool) -> str:
     return "\n".join(lines)
 
 
-def render(document: dict, output_format: str, detail: bool) -> str:
-    value = document if detail else compact_document(document)
+def render(document: dict, output_format: str, detail: bool, limit: int = 5) -> str:
+    value = document if detail else compact_document(document, limit=limit)
     if output_format == "json":
         return json.dumps(value, ensure_ascii=False, indent=2 if detail else None, separators=None if detail else (",", ":"))
     if output_format == "text":
-        return render_text(document, detail)
+        return render_text(document, detail, limit=limit)
     if output_format == "markdown":
-        text = render_text(document, detail)
+        text = render_text(document, detail, limit=limit)
         return "# C-Verify\n\n```text\n" + text + "\n```"
     raise ValueError(f"unknown output format: {output_format}")

@@ -14,12 +14,72 @@ from .execution import Toolchain, run_process
 
 SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx"}
 HEADER_SUFFIXES = {".h", ".hh", ".hpp", ".hxx"}
+_COMPILER_TRIPLE_RE = re.compile(r"(.+)-(?:gcc|g\+\+|clang(?:\+\+)?|cc|c\+\+)(?:-\d[\d.]*)?$")
+_GNU_COMPILER_RE = re.compile(r"^(?:.+-)?(?:gcc|g\+\+|clang(?:\+\+)?|cc|c\+\+)(?:-\d[\d.]*)?$")
+_KEEP_PAIRED_FLAGS = {
+    "-I", "-isystem", "-iquote", "-idirafter", "-include", "-imacros",
+    "-D", "-U", "-F", "-iframework", "--sysroot", "-isysroot",
+    "--target", "-target", "-Xpreprocessor",
+}
+_STRIP_PAIRED_FLAGS = {"-o", "-MF", "-MT", "-MQ", "-MJ", "--param"}
+_STRIP_SINGLE_FLAGS = {
+    "-c", "-S", "-E", "-M", "-MM", "-MD", "-MMD", "-MP",
+    "-Werror", "-Wall", "-Wextra", "-Wpedantic", "-pipe", "-save-temps",
+}
+_STRIP_PREFIXES = ("-o", "-MF", "-MT", "-MQ", "-MJ", "--param=", "-specs=", "--specs=", "-Wa,", "-Wl,", "-Werror=")
+_STRIP_CODEGEN_PREFIXES = (
+    "-flto", "-fno-lto", "-ffunction-sections", "-fdata-sections",
+    "-fomit-frame-pointer", "-fno-omit-frame-pointer", "-fstack-protector",
+    "-fstrict-aliasing", "-fno-strict-aliasing", "-falign-", "-finline-functions", "-fno-inline",
+)
+_OPT_FLAG_RE = re.compile(r"^-O(?:[0-3sgz]|fast)?$")
+_DEBUG_PREFIXES = ("-gdwarf", "-ggdb", "-gstabs", "-g0", "-g1", "-g2", "-g3", "-gz")
 
 
-def compiler_name_arguments(executable):
-    name = re.sub(r"(?i)\.exe$", "", Path(executable.replace("\\", "/")).name)
-    match = re.fullmatch(r"(.+)-(?:gcc|g\+\+|clang(?:\+\+)?|cc|c\+\+)(?:-\d[\d.]*)?", name)
+def _compiler_stem(executable: str) -> str:
+    return re.sub(r"(?i)\.exe$", "", Path(executable.replace("\\", "/")).name)
+
+
+def long_path_name(executable: str) -> str:
+    """Expand Windows 8.3 short paths without resolving POSIX symlinks."""
+    if os.name != "nt" or not executable:
+        return executable
+    try:
+        if not Path(executable).exists():
+            return executable
+    except OSError:
+        return executable
+    get_long = ctypes.windll.kernel32.GetLongPathNameW
+    get_long.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint]
+    get_long.restype = ctypes.c_uint
+    size = 260
+    while True:
+        buffer = ctypes.create_unicode_buffer(size)
+        copied = get_long(executable, buffer, size)
+        if copied == 0:
+            return executable
+        if copied < size:
+            return buffer.value
+        size = copied + 1
+
+
+def compiler_name_arguments(executable: str) -> list[str]:
+    match = _COMPILER_TRIPLE_RE.fullmatch(_compiler_stem(executable))
+    if not match and os.name == "nt":
+        expanded = long_path_name(executable)
+        if expanded != executable:
+            match = _COMPILER_TRIPLE_RE.fullmatch(_compiler_stem(expanded))
     return ["--target=" + match[1]] if match else []
+
+
+def is_gnu_like_compiler(executable: str) -> bool:
+    if _GNU_COMPILER_RE.fullmatch(_compiler_stem(executable)):
+        return True
+    if os.name == "nt":
+        expanded = long_path_name(executable)
+        if expanded != executable:
+            return bool(_GNU_COMPILER_RE.fullmatch(_compiler_stem(expanded)))
+    return False
 
 
 def split_compiler_command(command: str) -> list[str]:
@@ -123,35 +183,32 @@ def expand_response_arguments(arguments: Sequence[str], base_dir: Path, seen: fr
     return expanded
 
 
-def private_driver_compile_args(compdb: Path, source: Path, toolchain: Toolchain) -> list[str] | None:
-    """Return target/ABI flags when this entry uses our driver; None for foreign drivers."""
+def find_compdb_entry(compdb: Path, source: Path) -> dict | None:
     try:
         entries = compilation_entries(compdb)
+        resolved_source = source.resolve()
         for entry in entries:
             directory = Path(entry["directory"])
             candidate = Path(entry["file"])
             candidate = candidate if candidate.is_absolute() else directory / candidate
-            if candidate.resolve() != source.resolve():
-                continue
-            return private_driver_entry_args(entry, toolchain)
+            if candidate.resolve() == resolved_source:
+                return entry
         return None
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise ValueError(f"cannot parse compilation context for {source}: {error}") from error
 
 
-def private_driver_entry_args(entry, toolchain):
-    directory = Path(entry["directory"])
-    arguments = entry.get("arguments") or split_compiler_command(entry["command"])
-    if not (directory / arguments[0]).resolve().is_relative_to(toolchain.root.resolve()):
-        return None
-    arguments = expand_response_arguments(arguments, directory)
+def target_driver_flags(arguments: Sequence[str], *, include_defines: bool = True) -> list[str]:
     forwarded = []
-    separate = {"--target", "-target", "--sysroot", "-isysroot", "--gcc-toolchain", "-D", "-U"}
+    separate = {"--target", "-target", "--sysroot", "-isysroot", "--gcc-toolchain"}
     prefixes = (
         "--target=", "-target=", "--sysroot=", "--gcc-toolchain=", "-mcpu=", "-march=",
         "-mabi=", "-mfloat-abi=", "-mfpu=", "-mthumb", "-marm", "-fshort-enums",
-        "-fshort-wchar", "-stdlib=", "-std=", "-D", "-U",
+        "-fshort-wchar", "-stdlib=", "-std=", "--specs=",
     )
+    if include_defines:
+        separate = separate | {"-D", "-U"}
+        prefixes = prefixes + ("-D", "-U")
     index = 0
     while index < len(arguments):
         argument = arguments[index]
@@ -165,24 +222,169 @@ def private_driver_entry_args(entry, toolchain):
     return forwarded
 
 
-def private_driver_arguments(toolchain: Toolchain, cpp: bool, cwd: Path, compile_args: Sequence[str] = ()) -> tuple[list[str], dict]:
-    """Discover target and system headers using the actual compilation target context."""
-    compiler = toolchain.require("clang++" if cpp else "clang")
+def private_driver_compile_args(compdb: Path, source: Path, toolchain: Toolchain) -> list[str] | None:
+    """Return target/ABI flags when this entry uses our driver; None for foreign drivers."""
+    entry = find_compdb_entry(compdb, source)
+    return None if entry is None else private_driver_entry_args(entry, toolchain)
+
+
+def private_driver_entry_args(entry, toolchain):
+    directory = Path(entry["directory"])
+    arguments = entry.get("arguments") or split_compiler_command(entry["command"])
+    if not (directory / arguments[0]).resolve().is_relative_to(toolchain.root.resolve()):
+        return None
+    arguments = expand_response_arguments(arguments, directory)
+    return target_driver_flags(arguments, include_defines=True)
+
+
+def query_driver_arguments(compiler: Path, cpp: bool, cwd: Path, compile_args: Sequence[str] = ()) -> tuple[list[str], dict]:
+    """Discover target and system headers from a GCC/Clang driver."""
+    query_cwd = cwd if cwd.is_dir() else Path.cwd()
     process = run_process(
         [compiler, *compile_args, "-E", "-x", "c++" if cpp else "c", "-v", "-"],
-        cwd=cwd, timeout_s=30,
+        cwd=query_cwd, timeout_s=30,
     )
     output = process.stdout + process.stderr
     record = {"command": process.command, "exit_code": process.exit_code, "output": output}
     if process.exit_code != 0 or process.start_error or process.timed_out:
-        raise ValueError(process.start_error or output[-1000:] or "private compiler query failed")
+        raise ValueError(process.start_error or output[-1000:] or "compiler query failed")
     target = re.search(r"(?m)^Target:\s*(.+?)\s*$", output)
     include_match = re.search(r"#include <\.\.\.> search starts here:\s*\n(.*?)\nEnd of search list\.", output, re.DOTALL)
     if not target or not include_match:
-        raise ValueError("cannot determine target/system include paths from private compiler")
-    includes = [line.strip() for line in include_match.group(1).splitlines() if line.strip()]
-    arguments = [f"--target={target.group(1)}", *[f"-isystem{include}" for include in includes]]
+        raise ValueError("cannot determine target/system include paths from compiler")
+    arguments = [f"--target={target.group(1)}"]
+    for raw_line in include_match.group(1).splitlines():
+        item = raw_line.strip()
+        if not item:
+            continue
+        is_framework = item.endswith("(framework directory)")
+        if is_framework:
+            item = item[:-len("(framework directory)")].strip()
+        try:
+            resolved = Path(item).resolve()
+            text = resolved.as_posix() if resolved.is_dir() else item
+        except OSError:
+            text = item
+        arguments.append(f"-iframework{text}" if is_framework else f"-isystem{text}")
     record["arguments"] = arguments
     return arguments, record
+
+
+def private_driver_arguments(toolchain: Toolchain, cpp: bool, cwd: Path, compile_args: Sequence[str] = ()) -> tuple[list[str], dict]:
+    """Discover target and system headers using the actual compilation target context."""
+    compiler = toolchain.require("clang++" if cpp else "clang")
+    return query_driver_arguments(compiler, cpp, cwd, compile_args)
+
+
+def resolve_entry_driver_arguments(
+    entry: dict, toolchain: Toolchain, cpp: bool, cwd: Path, cache: dict | None = None,
+) -> tuple[list[str], dict | None]:
+    """Resolve target/system-header args for private or explicit external GCC/Clang drivers."""
+    directory = Path(entry["directory"])
+    arguments = entry.get("arguments") or split_compiler_command(entry["command"])
+    compiler_raw = arguments[0]
+    candidate = Path(compiler_raw)
+    if not candidate.is_absolute():
+        candidate = directory / candidate
+    if candidate.resolve().is_relative_to(toolchain.root.resolve()):
+        forwarded = target_driver_flags(expand_response_arguments(arguments, directory), include_defines=True)
+        key = ("private", cpp, tuple(forwarded))
+        if cache is not None and key in cache:
+            return cache[key]
+        result = private_driver_arguments(toolchain, cpp, cwd, forwarded)
+        if cache is not None:
+            cache[key] = result
+        return result
+    if candidate.is_file() and is_gnu_like_compiler(str(candidate)):
+        compiler_path = Path(os.path.abspath(long_path_name(str(candidate))))
+        forwarded = target_driver_flags(expand_response_arguments(arguments, directory), include_defines=False)
+        key = ("external", str(compiler_path), cpp, tuple(forwarded))
+        if cache is not None and key in cache:
+            return cache[key]
+        try:
+            result = query_driver_arguments(compiler_path, cpp, cwd, forwarded)
+        except (ValueError, OSError) as error:
+            fallback = compiler_name_arguments(str(compiler_path))
+            result = (fallback, {"command": [str(compiler_path), *forwarded], "exit_code": None, "fallback": True, "error": str(error), "arguments": fallback})
+        if cache is not None:
+            cache[key] = result
+        return result
+    return compiler_name_arguments(compiler_raw), None
+
+
+def compdb_system_includes(compdb: Path | None, driver_args: Sequence[str] = ()) -> set[Path]:
+    """Collect existing system include directories declared in compdb entries or driver args."""
+    includes: set[Path] = set()
+
+    def scan_args(args: Sequence[str], base_dir: Path) -> None:
+        index = 0
+        while index < len(args):
+            value = args[index]
+            raw_path = None
+            if value in ("-isystem", "-iframework") and index + 1 < len(args):
+                raw_path = args[index + 1]
+                index += 2
+            elif value.startswith("-isystem="):
+                raw_path = value[len("-isystem="):]
+                index += 1
+            elif value.startswith("-isystem") and len(value) > len("-isystem"):
+                raw_path = value[len("-isystem"):]
+                index += 1
+            elif value.startswith("-iframework="):
+                raw_path = value[len("-iframework="):]
+                index += 1
+            elif value.startswith("-iframework") and len(value) > len("-iframework"):
+                raw_path = value[len("-iframework"):]
+                index += 1
+            else:
+                index += 1
+                continue
+            if raw_path:
+                try:
+                    path = Path(raw_path)
+                    resolved = (path if path.is_absolute() else base_dir / path).resolve()
+                    if resolved.is_dir():
+                        includes.add(resolved)
+                except OSError:
+                    pass
+
+    if driver_args:
+        scan_args(driver_args, Path.cwd())
+    if compdb is not None:
+        try:
+            for entry in compilation_entries(compdb):
+                directory = Path(entry["directory"])
+                args = entry.get("arguments") or split_compiler_command(entry["command"])
+                scan_args(args, directory)
+        except ValueError:
+            pass
+    return includes
+
+
+def sanitize_dependency_arguments(arguments: Sequence[str]) -> list[str]:
+    """Keep target, macro and include flags for clang -M; strip warnings and codegen flags."""
+    kept: list[str] = []
+    index = 0
+    while index < len(arguments):
+        value = arguments[index]
+        if value in _KEEP_PAIRED_FLAGS and index + 1 < len(arguments):
+            kept.extend((value, arguments[index + 1]))
+            index += 2
+            continue
+        if value in _STRIP_PAIRED_FLAGS:
+            index += 2
+            continue
+        if value in _STRIP_SINGLE_FLAGS or value.startswith(_STRIP_PREFIXES) or value.startswith(_STRIP_CODEGEN_PREFIXES):
+            index += 1
+            continue
+        if value == "-W" or (value.startswith("-W") and not value.startswith("-Wp,")):
+            index += 1
+            continue
+        if _OPT_FLAG_RE.fullmatch(value) or value == "-g" or value.startswith(_DEBUG_PREFIXES):
+            index += 1
+            continue
+        kept.append(value)
+        index += 1
+    return kept
 
 
