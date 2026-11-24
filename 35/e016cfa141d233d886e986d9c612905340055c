@@ -1,0 +1,35 @@
+SKILL.md
+  s_ba718d54c093cd::t_0e446bb08364a1 8,10,12,15,18-19,21,23,25,27,29-35,37,39,41,43,45,47,49
+references/report-contract.md
+  s_ba718d54c093cd::t_01ebc1e4bd9110 28,30
+scripts/cverify/__init__.py
+  s_ba718d54c093cd::t_f9460a76d58c36 3
+scripts/cverify/checks.py
+  s_ba718d54c093cd::t_0d8ff4683b4522 311-328,385,388,392,394,396-400,422-423,564,569,584-588
+scripts/cverify/compilation.py
+  s_ba718d54c093cd::t_d781acdaba301f 240-246,252-260,262,265,291-292,331
+scripts/cverify/incremental/context.py
+  s_ba718d54c093cd::t_a274e79a094772 125,127-130,132
+scripts/cverify/report.py
+  s_ba718d54c093cd::t_86bd3a3f3d1787 72-86,103,106-108,112-114,119,126-135,143-154,156,159-161,163-164,173-175,200-204,209-211,213-217,219-220,224-225,227-232,254-263,267-268
+tests/test_core.py
+  s_ba718d54c093cd::t_d11eaeb8be83b3 16,232-281
+tests/test_integration.py
+  s_ba718d54c093cd::t_231d0c31087308 18,553,562-563,568,580-608
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "35e016cfa141d233d886e986d9c612905340055c",
+  "prompts": {},
+  "sessions": {
+    "s_ba718d54c093cd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e1f1-8bb8-7f50-9459-398ddc01be3c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ruiwarn <162423525+ruiwarn@users.noreply.github.com>"
+    }
+  }
+}
