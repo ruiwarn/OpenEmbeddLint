@@ -9,9 +9,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from cverify.checks import append_issue, is_excluded_header_issue, parse_clang_tidy, run_cppcheck, run_project_command
+from cverify.checks import append_issue, is_excluded_header_issue, parse_clang_tidy, private_driver_compile_args, run_cppcheck, run_project_command
 from cverify.cli import load_config
-from cverify.compilation import compiler_name_arguments, is_gnu_like_compiler, long_path_name, sanitize_dependency_arguments
+from cverify.compilation import compdb_system_includes, compiler_name_arguments, is_gnu_like_compiler, long_path_name, sanitize_dependency_arguments
 from cverify.execution import ERROR, FAIL, PASS, SKIP, CheckResult, Issue, Toolchain, platform_key
 from cverify.report import compact_document, exit_code, full_document
 
@@ -218,6 +218,16 @@ class PortabilityAndSuppressionTests(unittest.TestCase):
             ext = Path(directory) / "external_sdk" / "inc.h"
             self.assertTrue(is_excluded_header_issue(Issue(file=str(ext), line=1, rule="r", message="w"), root, (), {"a.c"}))
             self.assertFalse(is_excluded_header_issue(Issue(file=str(ext), line=1, rule="clang-diagnostic-error", severity="error", message="fatal error: file not found"), root, (), {"a.c"}))
+
+    def test_checks_reexport_and_idirafter_collection(self):
+        self.assertTrue(callable(private_driver_compile_args))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dirs = [root / name for name in ("d1", "d2", "d3")]
+            for d in dirs:
+                d.mkdir()
+            collected = compdb_system_includes(None, [f"-idirafter{dirs[0]}", f"-idirafter={dirs[1]}", "-idirafter", str(dirs[2])])
+            self.assertEqual(collected, {d.resolve() for d in dirs})
 
 
 if __name__ == "__main__":

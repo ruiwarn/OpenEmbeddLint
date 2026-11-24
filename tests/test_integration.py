@@ -532,30 +532,47 @@ class RuntimeIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             inc = root / "sdk include" / "include"
+            gcc_inc = root / "lib" / "gcc" / "arm-none-eabi" / "10.3.1" / "include"
+            gcc_fixed = root / "lib" / "gcc" / "arm-none-eabi" / "10.3.1" / "include-fixed"
             fw = root / "Frameworks"
-            inc.mkdir(parents=True)
-            fw.mkdir()
+            for path in (inc, gcc_inc, gcc_fixed, fw):
+                path.mkdir(parents=True)
             ext_gcc = root / "bin" / "arm-none-eabi-gcc.exe"
+            ext_clang = root / "bin" / "clang"
             ext_gcc.parent.mkdir()
             ext_gcc.write_bytes(b"")
             fake_stderr = (
                 "Target: arm-none-eabi\n"
                 "#include <...> search starts here:\n"
                 f" {inc}\n"
+                f" {gcc_inc}\n"
+                f" {gcc_fixed}\n"
                 f" {fw} (framework directory)\n"
                 "End of search list.\n"
             )
             with patch("cverify.compilation.run_process", return_value=ProcessResult(["arm-none-eabi-gcc"], 0, "", fake_stderr, 0.01)):
                 args, rec = resolve_entry_driver_arguments({"directory": str(root), "file": "a.c", "arguments": [str(ext_gcc), "-mcpu=cortex-m0", "-DFOO=1", "-c", "a.c"]}, Toolchain(SKILL_DIR), False, root)
-            self.assertEqual(args, ["--target=arm-none-eabi", f"-isystem{inc.resolve().as_posix()}", f"-iframework{fw.resolve().as_posix()}"])
+            self.assertEqual(args, [
+                "--target=arm-none-eabi",
+                f"-isystem{inc.resolve().as_posix()}",
+                f"-idirafter{gcc_inc.resolve().as_posix()}",
+                f"-idirafter{gcc_fixed.resolve().as_posix()}",
+                f"-iframework{fw.resolve().as_posix()}",
+            ])
             self.assertFalse(rec.get("fallback"))
             with patch("cverify.compilation.run_process", return_value=ProcessResult(["arm-none-eabi-gcc"], 1, "", "unsupported", 0.01)):
                 fb_args, fb_rec = resolve_entry_driver_arguments({"directory": str(root), "file": "a.c", "arguments": [str(ext_gcc), "-c", "a.c"]}, Toolchain(SKILL_DIR), False, root)
             self.assertEqual(fb_args, ["--target=arm-none-eabi"])
             self.assertTrue(fb_rec.get("fallback"))
             with patch("cverify.compilation.run_process", return_value=ProcessResult(["clang"], 0, "", fake_stderr, 0.01)):
-                q_args, _ = query_driver_arguments(ext_gcc, True, root)
-            self.assertEqual(q_args[0], "--target=arm-none-eabi")
+                q_args, _ = query_driver_arguments(ext_clang, True, root)
+            self.assertEqual(q_args, [
+                "--target=arm-none-eabi",
+                f"-isystem{inc.resolve().as_posix()}",
+                f"-isystem{gcc_inc.resolve().as_posix()}",
+                f"-isystem{gcc_fixed.resolve().as_posix()}",
+                f"-iframework{fw.resolve().as_posix()}",
+            ])
 
     def test_actionable_and_prune_temp_cli_commands(self):
         with tempfile.TemporaryDirectory() as directory:

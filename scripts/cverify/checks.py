@@ -23,6 +23,7 @@ from .compilation import (
     expand_response_arguments,
     find_compdb_entry,
     private_driver_arguments,
+    private_driver_compile_args,
     resolve_entry_driver_arguments,
     split_compiler_command,
 )

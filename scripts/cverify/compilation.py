@@ -237,6 +237,11 @@ def private_driver_entry_args(entry, toolchain):
     return target_driver_flags(arguments, include_defines=True)
 
 
+def _is_gcc_internal_include(path_text: str) -> bool:
+    norm = path_text.replace("\\", "/")
+    return bool(re.search(r"/lib(?:64)?/gcc/", norm, re.IGNORECASE)) or Path(norm).name.lower() == "include-fixed"
+
+
 def query_driver_arguments(compiler: Path, cpp: bool, cwd: Path, compile_args: Sequence[str] = ()) -> tuple[list[str], dict]:
     """Discover target and system headers from a GCC/Clang driver."""
     query_cwd = cwd if cwd.is_dir() else Path.cwd()
@@ -252,6 +257,7 @@ def query_driver_arguments(compiler: Path, cpp: bool, cwd: Path, compile_args: S
     include_match = re.search(r"#include <\.\.\.> search starts here:\s*\n(.*?)\nEnd of search list\.", output, re.DOTALL)
     if not target or not include_match:
         raise ValueError("cannot determine target/system include paths from compiler")
+    is_clang = "clang" in _compiler_stem(str(compiler)).lower()
     arguments = [f"--target={target.group(1)}"]
     for raw_line in include_match.group(1).splitlines():
         item = raw_line.strip()
@@ -265,7 +271,8 @@ def query_driver_arguments(compiler: Path, cpp: bool, cwd: Path, compile_args: S
             text = resolved.as_posix() if resolved.is_dir() else item
         except OSError:
             text = item
-        arguments.append(f"-iframework{text}" if is_framework else f"-isystem{text}")
+        flag = "-iframework" if is_framework else ("-idirafter" if not is_clang and _is_gcc_internal_include(text) else "-isystem")
+        arguments.append(flag + text)
     record["arguments"] = arguments
     return arguments, record
 
@@ -317,28 +324,20 @@ def compdb_system_includes(compdb: Path | None, driver_args: Sequence[str] = ())
     includes: set[Path] = set()
 
     def scan_args(args: Sequence[str], base_dir: Path) -> None:
+        flags = ("-isystem", "-iframework", "-idirafter")
         index = 0
         while index < len(args):
             value = args[index]
             raw_path = None
-            if value in ("-isystem", "-iframework") and index + 1 < len(args):
+            if value in flags and index + 1 < len(args):
                 raw_path = args[index + 1]
                 index += 2
-            elif value.startswith("-isystem="):
-                raw_path = value[len("-isystem="):]
-                index += 1
-            elif value.startswith("-isystem") and len(value) > len("-isystem"):
-                raw_path = value[len("-isystem"):]
-                index += 1
-            elif value.startswith("-iframework="):
-                raw_path = value[len("-iframework="):]
-                index += 1
-            elif value.startswith("-iframework") and len(value) > len("-iframework"):
-                raw_path = value[len("-iframework"):]
-                index += 1
             else:
+                for prefix in flags:
+                    if value.startswith(prefix) and len(value) > len(prefix):
+                        raw_path = value[len(prefix) + (1 if value[len(prefix)] == "=" else 0):]
+                        break
                 index += 1
-                continue
             if raw_path:
                 try:
                     path = Path(raw_path)
