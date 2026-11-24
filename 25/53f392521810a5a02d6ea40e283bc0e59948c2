@@ -1,0 +1,53 @@
+SKILL.md
+  s_ba718d54c093cd::t_6c89934e5b6b3d 22,42
+config.schema.json
+  s_ba718d54c093cd::t_3f9a31be45580a 66-67
+references/configuration.md
+  s_ba718d54c093cd::t_8a43eff2a4150d 51-52,108-110,127
+references/report-contract.md
+  s_ba718d54c093cd::t_01a3a9416d5510 28,36
+scripts/cverify/__init__.py
+  s_ba718d54c093cd::t_b1dc3fdfb32c82 3
+scripts/cverify/checks.py
+  s_ba718d54c093cd::t_133cacd6b05e85 5,7,11,14,18-28,77-99,104-105,113-120,130-164,229-255,258-261,268-269,286-291,329,331,362-383,392-393,395-398,400,406-430,438-441,471-474,482-483,485-490,508-510,533-535,537-538,540-544,546-551,564,567-572,577-578,580-591,595-598,699,708,715-720,724-725,727-735,798,800
+scripts/cverify/cli.py
+  s_ba718d54c093cd::t_070ef547d81bc2 8,10,14,30,47,60-61,64-65,76,199-205,243-281,289-292,336-342,349-352,357-360,362,414,419-425,470,489-493
+scripts/cverify/compilation.py
+  s_ba718d54c093cd::t_72094d7f0e6036 17-36,39-71,75-84,186,189,194-195,201,203,207,209-211,225-242,245,250,254-268,273-390
+scripts/cverify/incremental/attribution.py
+  s_ba718d54c093cd::t_bfe8d102bf7ffc 9-16,101,113-122,132-136,141,145-161,163-173,179,181-191,195-197,199,201-206,220-236,240,251,257,259-262,266
+scripts/cverify/incremental/context.py
+  s_ba718d54c093cd::t_900c2d0911af45 3,8,120-121,123-124,129-130,132-150,152,155,159
+scripts/cverify/incremental/runner.py
+  s_ba718d54c093cd::t_362c577c290ae5 4,7,10-13,18-30,51-54,56,64-68,87,91,113,115-117,126,139-202,208-211,213,218,222-223,227-266,269,272-282,284-287
+scripts/cverify/incremental/snapshots.py
+  s_ba718d54c093cd::t_01709d0db48951 72-84,136-145
+scripts/cverify/report.py
+  s_ba718d54c093cd::t_dc5d6b575e1a36 53-59,83,87-98,103-107,122,130,142-144,147-148,160,166-172,194,213-214,218,220
+tests/test_core.py
+  s_ba718d54c093cd::t_3c0d8584ce6046 8,12-14,173-222
+tests/test_incremental.py
+  s_ba718d54c093cd::t_5b953fd75b6f25 142-157
+tests/test_incremental_execution.py
+  s_ba718d54c093cd::t_bde3e6c075eae0 27-28,384-432
+tests/test_integration.py
+  s_ba718d54c093cd::t_883f594de2629c 11,20-21,45-52,433-440,531-586
+tests/test_misra.py
+  s_ba718d54c093cd::t_5fc44ce671029c 32-36,194-209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "2553f392521810a5a02d6ea40e283bc0e59948c2",
+  "prompts": {},
+  "sessions": {
+    "s_ba718d54c093cd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e1f1-8bb8-7f50-9459-398ddc01be3c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ruiwarn <162423525+ruiwarn@users.noreply.github.com>"
+    }
+  }
+}
