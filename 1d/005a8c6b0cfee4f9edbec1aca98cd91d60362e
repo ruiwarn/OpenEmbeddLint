@@ -1,0 +1,27 @@
+scripts/cverify/__init__.py
+  s_ba718d54c093cd::t_4c35ac9e52b986 3
+scripts/cverify/checks.py
+  s_ba718d54c093cd::t_e0bc12e69c90cf 26
+scripts/cverify/compilation.py
+  s_ba718d54c093cd::t_93328d3342f780 240-244,260,274-275,327,332,336-339
+tests/test_core.py
+  s_ba718d54c093cd::t_bfcb2af334bfc5 12,14,222-231
+tests/test_integration.py
+  s_ba718d54c093cd::t_2fa1c226ff349b 535-536,538-539,541,548-549,555-561,568-575
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1d005a8c6b0cfee4f9edbec1aca98cd91d60362e",
+  "prompts": {},
+  "sessions": {
+    "s_ba718d54c093cd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e1f1-8bb8-7f50-9459-398ddc01be3c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ruiwarn <162423525+ruiwarn@users.noreply.github.com>"
+    }
+  }
+}
