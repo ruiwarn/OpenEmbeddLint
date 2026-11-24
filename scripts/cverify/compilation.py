@@ -237,20 +237,35 @@ def private_driver_entry_args(entry, toolchain):
     return target_driver_flags(arguments, include_defines=True)
 
 
+_COMPILER_IDENTITY_MACROS = frozenset({
+    "__GNUC__", "__GNUC_MINOR__", "__GNUC_PATCHLEVEL__",
+    "__clang__", "__clang_major__", "__clang_minor__", "__clang_patchlevel__",
+})
+_DEFINE_LINE_RE = re.compile(r"^#define\s+([A-Za-z_]\w*)(?:\s+(.*?))?\s*$")
+
+
 def _is_gcc_internal_include(path_text: str) -> bool:
     norm = path_text.replace("\\", "/")
     return bool(re.search(r"/lib(?:64)?/gcc/", norm, re.IGNORECASE)) or Path(norm).name.lower() == "include-fixed"
 
 
+def _extract_identity_defines(stdout: str) -> list[str]:
+    found: dict[str, str] = {}
+    for line in stdout.splitlines():
+        match = _DEFINE_LINE_RE.match(line)
+        if match and match[1] in _COMPILER_IDENTITY_MACROS:
+            found[match[1]] = match[2] or ""
+    return [f"{name}={val}" if val else name for name, val in sorted(found.items())]
+
+
 def query_driver_arguments(compiler: Path, cpp: bool, cwd: Path, compile_args: Sequence[str] = ()) -> tuple[list[str], dict]:
-    """Discover target and system headers from a GCC/Clang driver."""
+    """Discover target, system headers, and compiler-identity defines from a GCC/Clang driver."""
     query_cwd = cwd if cwd.is_dir() else Path.cwd()
     process = run_process(
-        [compiler, *compile_args, "-E", "-x", "c++" if cpp else "c", "-v", "-"],
+        [compiler, *compile_args, "-E", "-x", "c++" if cpp else "c", "-dM", "-v", "-"],
         cwd=query_cwd, timeout_s=30,
     )
     output = process.stdout + process.stderr
-    record = {"command": process.command, "exit_code": process.exit_code, "output": output}
     if process.exit_code != 0 or process.start_error or process.timed_out:
         raise ValueError(process.start_error or output[-1000:] or "compiler query failed")
     target = re.search(r"(?m)^Target:\s*(.+?)\s*$", output)
@@ -273,7 +288,8 @@ def query_driver_arguments(compiler: Path, cpp: bool, cwd: Path, compile_args: S
             text = item
         flag = "-iframework" if is_framework else ("-idirafter" if not is_clang and _is_gcc_internal_include(text) else "-isystem")
         arguments.append(flag + text)
-    record["arguments"] = arguments
+    defines = _extract_identity_defines(process.stdout)
+    record = {"command": process.command, "exit_code": process.exit_code, "arguments": arguments, "defines": defines}
     return arguments, record
 
 
@@ -312,7 +328,7 @@ def resolve_entry_driver_arguments(
             result = query_driver_arguments(compiler_path, cpp, cwd, forwarded)
         except (ValueError, OSError) as error:
             fallback = compiler_name_arguments(str(compiler_path))
-            result = (fallback, {"command": [str(compiler_path), *forwarded], "exit_code": None, "fallback": True, "error": str(error), "arguments": fallback})
+            result = (fallback, {"command": [str(compiler_path), *forwarded], "exit_code": None, "fallback": True, "error": str(error), "arguments": fallback, "defines": []})
         if cache is not None:
             cache[key] = result
         return result

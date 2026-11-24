@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from cverify.checks import run_coverage, run_project_command
+from cverify.checks import run_clang_tidy, run_coverage, run_cppcheck, run_project_command
 from cverify.cli import main
 from cverify.compilation import query_driver_arguments, resolve_entry_driver_arguments
 from cverify.execution import FAIL, PASS, ProcessResult, Toolchain, run_process
@@ -550,7 +550,7 @@ class RuntimeIntegrationTests(unittest.TestCase):
                 f" {fw} (framework directory)\n"
                 "End of search list.\n"
             )
-            with patch("cverify.compilation.run_process", return_value=ProcessResult(["arm-none-eabi-gcc"], 0, "", fake_stderr, 0.01)):
+            with patch("cverify.compilation.run_process", return_value=ProcessResult(["arm-none-eabi-gcc"], 0, "#define __GNUC__ 10\n#define __GNUC_MINOR__ 3\n#define __GNUC_PATCHLEVEL__ 1\n#define IGNORED_MACRO 1\n", fake_stderr, 0.01)):
                 args, rec = resolve_entry_driver_arguments({"directory": str(root), "file": "a.c", "arguments": [str(ext_gcc), "-mcpu=cortex-m0", "-DFOO=1", "-c", "a.c"]}, Toolchain(SKILL_DIR), False, root)
             self.assertEqual(args, [
                 "--target=arm-none-eabi",
@@ -559,10 +559,13 @@ class RuntimeIntegrationTests(unittest.TestCase):
                 f"-idirafter{gcc_fixed.resolve().as_posix()}",
                 f"-iframework{fw.resolve().as_posix()}",
             ])
+            self.assertEqual(rec.get("defines"), ["__GNUC_MINOR__=3", "__GNUC_PATCHLEVEL__=1", "__GNUC__=10"])
+            self.assertNotIn("output", rec)
             self.assertFalse(rec.get("fallback"))
             with patch("cverify.compilation.run_process", return_value=ProcessResult(["arm-none-eabi-gcc"], 1, "", "unsupported", 0.01)):
                 fb_args, fb_rec = resolve_entry_driver_arguments({"directory": str(root), "file": "a.c", "arguments": [str(ext_gcc), "-c", "a.c"]}, Toolchain(SKILL_DIR), False, root)
             self.assertEqual(fb_args, ["--target=arm-none-eabi"])
+            self.assertEqual(fb_rec.get("defines"), [])
             self.assertTrue(fb_rec.get("fallback"))
             with patch("cverify.compilation.run_process", return_value=ProcessResult(["clang"], 0, "", fake_stderr, 0.01)):
                 q_args, _ = query_driver_arguments(ext_clang, True, root)
@@ -573,6 +576,35 @@ class RuntimeIntegrationTests(unittest.TestCase):
                 f"-isystem{gcc_fixed.resolve().as_posix()}",
                 f"-iframework{fw.resolve().as_posix()}",
             ])
+
+    def test_cppcheck_injects_driver_identity_defines_and_tidy_dedups_queries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "proj"
+            out = Path(directory) / "out"
+            root.mkdir()
+            src_a = root / "a.c"
+            src_b = root / "b.c"
+            code = "#ifndef __GNUC__\n#error Unknown compiler.\n#endif\nint fn(void) { return 0; }\n"
+            src_a.write_text(code, encoding="utf-8")
+            src_b.write_text(code, encoding="utf-8")
+            compiler = Toolchain(SKILL_DIR).require("clang")
+            compdb = root / "compile_commands.json"
+            compdb.write_text(json.dumps([
+                {"directory": str(root), "file": "a.c", "arguments": [str(compiler), "-std=c11", "-c", "a.c"]},
+                {"directory": str(root), "file": "b.c", "arguments": [str(compiler), "-std=c11", "-c", "b.c"]},
+            ]), encoding="utf-8")
+            fake_query = {"command": ["arm-none-eabi-gcc", "-E"], "exit_code": 0, "arguments": [], "defines": ["__GNUC__=10", "__GNUC_MINOR__=3"]}
+            with patch("cverify.checks.resolve_entry_driver_arguments", return_value=([], fake_query)):
+                cpp_res = run_cppcheck([src_a], root, Toolchain(SKILL_DIR), {"cppcheck_defines": ["__GNUC__=9"]}, 60, out / "cpp", True, compdb)
+            self.assertEqual(cpp_res.status, PASS, cpp_res.reason)
+            log_text = Path(cpp_res.metrics["runs"][0]["log"]).read_text(encoding="utf-8")
+            self.assertIn("-D__GNUC_MINOR__=3", log_text)
+            self.assertNotIn("-D__GNUC__=10", log_text)
+
+            (root / ".clang-tidy").write_text('{"Checks":"-*,readability-magic-numbers"}', encoding="utf-8")
+            tidy_res = run_clang_tidy([src_a, src_b], root, Toolchain(SKILL_DIR), {}, 60, out / "tidy", True, compdb)
+            self.assertEqual(tidy_res.status, PASS, tidy_res.reason)
+            self.assertEqual(len(tidy_res.metrics.get("driver_queries", [])), 1)
 
     def test_actionable_and_prune_temp_cli_commands(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -122,16 +122,18 @@ def including_units(root, headers, database, config, toolchain, output, timeout,
     entries = compilation_entries(database)
     environment = toolchain.environment()
     tasks = []
+    resolved_root = root.resolve()
     for index, entry in enumerate(entries):
-        source = Path(entry["file"])
-        if source.suffix.lower() not in SOURCE_SUFFIXES:
+        entry_dir = Path(entry["directory"])
+        raw_source = Path(entry["file"])
+        source = (raw_source if raw_source.is_absolute() else entry_dir / raw_source).resolve()
+        if source.suffix.lower() not in SOURCE_SUFFIXES or not source.is_relative_to(resolved_root):
             continue
-        source_rel = source.relative_to(root).as_posix()
+        source_rel = source.relative_to(resolved_root).as_posix()
         if units is not None and source_rel not in units:
             continue
         is_cpp = source.suffix.lower() != ".c"
         compiler = toolchain.require("clang++" if is_cpp else "clang")
-        entry_dir = Path(entry["directory"])
         driver, _ = resolve_entry_driver_arguments(entry, toolchain, is_cpp, entry_dir, cache=queries)
         dep_flags = sanitize_dependency_arguments(entry["arguments"][1:])
         command = [compiler, *driver, *dep_flags, *config["static"]["extra_args"], "-Wno-unused-command-line-argument", "-M", "-MG", "-MT", "cverify", "-MF", "-"]

@@ -13,7 +13,7 @@ from cverify.checks import append_issue, is_excluded_header_issue, parse_clang_t
 from cverify.cli import load_config
 from cverify.compilation import compdb_system_includes, compiler_name_arguments, is_gnu_like_compiler, long_path_name, sanitize_dependency_arguments
 from cverify.execution import ERROR, FAIL, PASS, SKIP, CheckResult, Issue, Toolchain, platform_key
-from cverify.report import compact_document, exit_code, full_document
+from cverify.report import compact_document, exit_code, full_document, render_text
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
@@ -228,6 +228,56 @@ class PortabilityAndSuppressionTests(unittest.TestCase):
                 d.mkdir()
             collected = compdb_system_includes(None, [f"-idirafter{dirs[0]}", f"-idirafter={dirs[1]}", "-idirafter", str(dirs[2])])
             self.assertEqual(collected, {d.resolve() for d in dirs})
+
+    def test_compact_and_text_token_efficiency(self):
+        gate_doc = {
+            "schema_version": 1,
+            "report_path": "/tmp/r.json",
+            "summary": {"status": "FAIL", "complete": True, "files": 1, "checks": 2, "issues": 8, "errors": 8, "warnings": 0, "gaps": 0, "skipped": 0, "suppressed": 0},
+            "checks": [],
+            "gate": {
+                "status": "FAIL", "complete": True,
+                "counts": {"new": 6, "worsened": 0, "existing": 1, "unattributed": 1, "required": 0, "resolved": 0},
+                "baseline_commit": "abc", "snapshot": "worktree", "required_failures": [], "gaps": [],
+                "issues": [
+                    {"check": "clang-tidy", "classification": "unattributed", "reason": "diagnostic trace changed", "matched_baseline": {"file": "a.c", "line": 2, "column": 4}, "issue": {"rule": "r0", "severity": "error", "message": "m0", "file": "a.c", "line": 3}},
+                    *[
+                        {"check": "clang-tidy", "classification": "new", "reason": "no matching diagnostic under the same rule configuration", "issue": {"rule": "r-a" if i < 4 else "r-b", "severity": "error", "message": f"m{i}", "file": "a.c", "line": i + 10}}
+                        for i in range(6)
+                    ],
+                    {"check": "clang-tidy", "classification": "existing", "reason": "same diagnostic on an unchanged source line", "issue": {"rule": "r-old", "severity": "error", "message": "old", "file": "a.c", "line": 1}},
+                ],
+            },
+        }
+        compact = compact_document(gate_doc, limit=5)
+        self.assertNotIn("required_failures", compact["gate"])
+        self.assertNotIn("gap_summary", compact)
+        self.assertIn("reason", compact["findings"][0])
+        self.assertNotIn("reason", compact["findings"][1])
+        self.assertEqual(compact["issues_omitted"], 2)
+        self.assertEqual(compact["omitted_by_rule"], {"r-b": 2})
+        self.assertEqual(compact["report"], "/tmp/r.json")
+        text = render_text(gate_doc, False, limit=5)
+        self.assertIn("new=6 existing=1 unattributed=1", text)
+        self.assertIn("omitted: 2 (r-b:2)", text)
+        self.assertLess(len(text), len(json.dumps(compact)))
+
+        clean_gate = {
+            **gate_doc,
+            "summary": {**gate_doc["summary"], "status": "PASS", "issues": 0, "errors": 0},
+            "gate": {**gate_doc["gate"], "status": "PASS", "counts": {"new": 0, "worsened": 0, "existing": 1, "unattributed": 0, "required": 0, "resolved": 0}, "issues": [gate_doc["gate"]["issues"][-1]]},
+        }
+        clean_compact = compact_document(clean_gate)
+        self.assertNotIn("report", clean_compact)
+        self.assertNotIn("issues_omitted", clean_compact)
+        self.assertNotIn("detail:", render_text(clean_gate, False))
+
+        issues = [Issue(file="a.c", line=i + 1, rule="r1" if i < 6 else "r2", severity="error", message=f"m{i}") for i in range(8)]
+        scan_doc = full_document({"profile": "quick", "report_path": "/tmp/s.json"}, [CheckResult("clang-tidy", "correctness", FAIL, issues=issues)], [])
+        scan_compact = compact_document(scan_doc, limit=5)
+        for absent in ("warnings", "gaps", "skipped", "suppressed"):
+            self.assertNotIn(absent, scan_compact)
+        self.assertEqual((scan_compact["issues_omitted"], scan_compact["omitted_by_rule"]), (3, {"r2": 2, "r1": 1}))
 
 
 if __name__ == "__main__":

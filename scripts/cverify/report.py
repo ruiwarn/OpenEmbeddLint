@@ -69,6 +69,21 @@ def full_document(context: dict, checks: Sequence[CheckResult], requirements: li
     }
 
 
+_DEFAULT_GATE_REASONS = {
+    "new": "no matching diagnostic under the same rule configuration",
+    "worsened": "compared the same function's metric evidence",
+    "required": "this check always applies to the current snapshot",
+}
+
+
+def _rule_counts(issues: Sequence[dict], top: int = 10) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for issue in issues:
+        rule = issue.get("rule") or "unknown"
+        counts[rule] = counts.get(rule, 0) + 1
+    return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:top])
+
+
 def _compact_issue(issue: dict) -> dict:
     item = {"rule": issue["rule"], "severity": issue["severity"], "message": issue["message"][:240]}
     if issue.get("file"):
@@ -85,29 +100,39 @@ def compact_document(document: dict, limit: int = 5) -> dict:
         gate = document["gate"]
         actionable = [record for record in gate["issues"] if record["classification"] != "existing"]
         shown = actionable if cap is None else actionable[:cap]
+        omitted_records = [] if cap is None else actionable[cap:]
         findings = []
         for record in shown:
-            item = {"check": record["check"], "classification": record["classification"], **_compact_issue(record["issue"]), "reason": record["reason"]}
+            item = {"check": record["check"], "classification": record["classification"], **_compact_issue(record["issue"])}
+            if record["reason"] != _DEFAULT_GATE_REASONS.get(record["classification"]):
+                item["reason"] = record["reason"]
             if record.get("matched_baseline"):
                 item["matched_baseline"] = record["matched_baseline"]
             findings.append(item)
-        compact_gate = {"counts": gate["counts"], "baseline_commit": gate["baseline_commit"], "snapshot": gate["snapshot"], "required_failures": gate["required_failures"]}
+        compact_gate = {"counts": gate["counts"], "baseline_commit": gate["baseline_commit"], "snapshot": gate["snapshot"]}
+        if gate["required_failures"]:
+            compact_gate["required_failures"] = gate["required_failures"]
         if gate.get("baseline_cached"):
             compact_gate["baseline_cached"] = True
         if gate.get("advisory_non_source_changes"):
             compact_gate["advisory_non_source_changes"] = gate["advisory_non_source_changes"][:5]
-        return {
+        result = {
             "schema_version": SCHEMA_VERSION, "status": gate["status"], "complete": gate["complete"],
             "scan_status": summary["status"], "scan_complete": summary["complete"],
             "files": summary["files"], "checks": summary["checks"],
             "gate": compact_gate,
             "findings": findings,
-            "issues_omitted": 0 if cap is None else max(0, len(actionable) - cap),
-            "gap_summary": gate["gaps"][:3] if cap is not None else gate["gaps"],
-            "gaps_omitted": 0 if cap is None else max(0, len(gate["gaps"]) - 3),
-            "report": document["report_path"],
         }
-    result = {"schema_version": SCHEMA_VERSION, **summary}
+        if omitted_records:
+            result["issues_omitted"] = len(omitted_records)
+            result["omitted_by_rule"] = _rule_counts([record["issue"] for record in omitted_records])
+        if gate["gaps"]:
+            result["gap_summary"] = gate["gaps"][:3] if cap is not None else gate["gaps"]
+            if cap is not None and len(gate["gaps"]) > 3:
+                result["gaps_omitted"] = len(gate["gaps"]) - 3
+        if not (gate["status"] == PASS and gate["complete"] and not actionable and not gate["gaps"]):
+            result["report"] = document["report_path"]
+        return result
     if summary["issues"] == 0 and summary["gaps"] == 0 and summary["status"] == PASS and summary["complete"]:
         result = {"schema_version": SCHEMA_VERSION, "status": PASS, "complete": True, "files": summary["files"], "checks": summary["checks"]}
         if summary["skipped"]:
@@ -115,24 +140,39 @@ def compact_document(document: dict, limit: int = 5) -> dict:
         if summary["suppressed"]:
             result["suppressed"] = summary["suppressed"]
         return result
+    result = {
+        "schema_version": SCHEMA_VERSION,
+        "status": summary["status"],
+        "complete": summary["complete"],
+        "files": summary["files"],
+        "checks": summary["checks"],
+        "issues": summary["issues"],
+        "errors": summary["errors"],
+    }
+    for key in ("warnings", "gaps", "skipped", "suppressed"):
+        if summary[key]:
+            result[key] = summary[key]
     relevant = [check for check in document["checks"] if check["status"] in (FAIL, ERROR) or check["issues"]]
-    remaining = summary["issues"]
+    omitted_list: list[dict] = []
     failures = []
     for check in relevant:
+        if cap is not None and len(failures) >= cap:
+            omitted_list.extend(check["issues"])
+            continue
         issues = check["issues"] if cap is None else check["issues"][:cap]
-        remaining -= len(issues)
+        if cap is not None:
+            omitted_list.extend(check["issues"][cap:])
         failures.append({
             "id": check["id"],
             "status": check["status"],
             **({"reason": check["reason"][:240]} if check.get("reason") else {}),
             **({"issues": [_compact_issue(issue) for issue in issues]} if issues else {}),
         })
-        if cap is not None and len(failures) >= cap:
-            break
     if failures:
         result["findings"] = failures
-        if remaining > 0:
-            result["issues_omitted"] = remaining
+    if omitted_list:
+        result["issues_omitted"] = len(omitted_list)
+        result["omitted_by_rule"] = _rule_counts(omitted_list)
     incomplete = [
         {"id": check["id"], "status": check["status"], "reason": (check.get("reason") or "not executed")[:240]}
         for check in document["checks"]
@@ -157,22 +197,39 @@ def _text_issue(issue: dict) -> str:
     return f"{location}: {issue['message']} [{issue['rule']}]"
 
 
+def _omitted_line(compact: dict) -> str:
+    breakdown = ", ".join(f"{rule}:{cnt}" for rule, cnt in compact.get("omitted_by_rule", {}).items())
+    return f"omitted: {compact['issues_omitted']}" + (f" ({breakdown})" if breakdown else "")
+
+
 def render_text(document: dict, detail: bool, limit: int = 5) -> str:
     gate_lines = []
     if "gate" in document:
         gate = document["gate"]
-        gate_lines = [f"Gate {gate['status']} | complete={gate['complete']} | scan={document['summary']['status']}", "counts: " + json.dumps(gate["counts"])]
-        if not detail:
+        if detail:
+            gate_lines = [f"Gate {gate['status']} | complete={gate['complete']} | scan={document['summary']['status']}", "counts: " + json.dumps(gate["counts"])]
+        else:
             compact = compact_document(document, limit=limit)
+            counts = {k: v for k, v in gate["counts"].items() if v}
+            count_text = " ".join(f"{k}={v}" for k, v in counts.items()) or "clean"
+            if gate.get("baseline_cached"):
+                count_text += " (cached)"
+            gate_lines = [f"Gate {gate['status']} | complete={gate['complete']} | scan={document['summary']['status']} | {count_text}"]
             for record in compact["findings"]:
-                line = record["classification"] + ": " + _text_issue(record)
+                loc = f"{record.get('file') or '<global>'}:{record.get('line') or 0}"
+                line = f"{record['classification']} [{record['check']}/{record['severity']}] {loc} [{record['rule']}] {record['message']}"
                 if record.get("matched_baseline"):
                     mb = record["matched_baseline"]
                     line += f" (baseline {mb.get('file')}:{mb.get('line')})"
+                if record.get("reason"):
+                    line += f" — {record['reason']}"
                 gate_lines.append(line)
-            gate_lines.extend("gap: " + gap for gap in compact["gap_summary"])
-            gate_lines.extend("failed: " + identifier for identifier in gate["required_failures"])
-            gate_lines.append("detail: " + document["report_path"])
+            if compact.get("issues_omitted"):
+                gate_lines.append(_omitted_line(compact))
+            gate_lines.extend("gap: " + gap for gap in compact.get("gap_summary", []))
+            gate_lines.extend("failed: " + identifier for identifier in gate.get("required_failures", []))
+            if compact.get("report"):
+                gate_lines.append("detail: " + compact["report"])
             return "\n".join(gate_lines)
     if detail:
         lines = [*gate_lines, f"C-Verify scan {document['summary']['status']} | complete={document['summary']['complete']}"]
@@ -194,14 +251,21 @@ def render_text(document: dict, detail: bool, limit: int = 5) -> str:
     compact = compact_document(document, limit=limit)
     summary = document["summary"]
     if summary["issues"] == 0 and summary["gaps"] == 0 and summary["status"] == PASS and summary["complete"]:
-        return f"PASS | complete=true | files={summary['files']} checks={summary['checks']} skipped={summary['skipped']} suppressed={summary['suppressed']}"
-    lines = [
-        f"{summary['status']} | complete={str(summary['complete']).lower()} | files={summary['files']} "
-        f"checks={summary['checks']} issues={summary['issues']} gaps={summary['gaps']} skipped={summary['skipped']} suppressed={summary['suppressed']}"
-    ]
+        parts = ["PASS", f"files={summary['files']} checks={summary['checks']}"]
+        for key in ("skipped", "suppressed"):
+            if summary[key]:
+                parts.append(f"{key}={summary[key]}")
+        return " | ".join(parts)
+    header = [f"files={summary['files']}", f"checks={summary['checks']}", f"issues={summary['issues']}"]
+    for key in ("gaps", "skipped", "suppressed"):
+        if summary[key]:
+            header.append(f"{key}={summary[key]}")
+    lines = [f"{summary['status']} | complete={str(summary['complete']).lower()} | " + " ".join(header)]
     for finding in compact.get("findings", []):
         lines.append(f"{finding['id']}: {finding['status']}" + (f" — {finding['reason']}" if finding.get("reason") else ""))
         lines.extend("  " + _text_issue(issue) for issue in finding.get("issues", []))
+    if compact.get("issues_omitted"):
+        lines.append(_omitted_line(compact))
     for check in compact.get("not_completed", []):
         lines.append(f"{check['id']}: {check['status']} — {check['reason']}")
     lines.extend("gap: " + gap for gap in compact.get("gap_summary", []))

@@ -308,6 +308,24 @@ def configured_misra(result, cases, toolchain, config, root, logs):
     return misra_arguments(toolchain, logs)
 
 
+def _explicit_macro_names(arguments: Sequence[str], config_defines: Sequence[str]) -> set[str]:
+    names = {item.split("=", 1)[0].split("(", 1)[0] for item in config_defines if item}
+    index = 0
+    while index < len(arguments):
+        arg = arguments[index]
+        spec = None
+        if arg == "-D" and index + 1 < len(arguments):
+            spec = arguments[index + 1]
+            index += 2
+        else:
+            if arg.startswith("-D") and len(arg) > 2:
+                spec = arg[2:]
+            index += 1
+        if spec:
+            names.add(spec.split("=", 1)[0].split("(", 1)[0])
+    return names
+
+
 def cppcheck_context(compdb, config, root, logs):
     arguments = [f"-D{value}" for value in config.get("cppcheck_defines", [])]
     arguments.extend(f"-I{(root / value).resolve()}" for value in config.get("cppcheck_includes", []))
@@ -364,14 +382,22 @@ def run_cppcheck(
     exclude_dirs = effective_exclude_dirs(exclude_directories, files, root)
     selected_rel = {relative(file, root).replace("\\", "/") for file in files}
     probed_driver_args: list[str] = []
+    case_defines: list[list[str]] = []
     if original_compdb is not None:
         cache = {} if driver_cache is None else driver_cache
+        config_defines = config.get("cppcheck_defines", [])
         try:
             for file, _ in cases:
                 entry = find_compdb_entry(original_compdb, file)
+                defines: list[str] = []
                 if entry is not None:
-                    d_args, _ = resolve_entry_driver_arguments(entry, toolchain, file.suffix.lower() != ".c", Path(entry["directory"]), cache=cache)
+                    d_args, query = resolve_entry_driver_arguments(entry, toolchain, file.suffix.lower() != ".c", Path(entry["directory"]), cache=cache)
                     probed_driver_args.extend(d_args)
+                    if query and query.get("defines"):
+                        entry_args = expand_response_arguments(entry.get("arguments") or split_compiler_command(entry["command"]), Path(entry["directory"]))
+                        explicit = _explicit_macro_names(entry_args, config_defines)
+                        defines = [item for item in query["defines"] if item.split("=", 1)[0] not in explicit]
+                case_defines.append(defines)
         except (ToolUnavailable, ValueError) as error:
             result.status = ERROR
             result.reason = str(error)
@@ -393,6 +419,8 @@ def run_cppcheck(
         if suppress_xml is not None:
             argv.append(f"--suppress-xml={suppress_xml}")
         argv.extend(extra_arguments)
+        if case_defines:
+            argv.extend(f"-D{item}" for item in case_defines[index])
         case_build = None
         if misra and file.suffix.lower() == ".c":
             case_build = logs / f"cppcheck-build-{index}"
@@ -533,27 +561,31 @@ def run_clang_tidy(
         return result
 
     cache = {} if driver_cache is None else driver_cache
+    seen_queries: set[tuple[str, ...]] = set()
     prepared = []
     for file in selected:
         driver_args: list[str] = []
         is_cpp = file.suffix.lower() != ".c"
+        query = None
         try:
             if compdb is None:
                 key = ("private", is_cpp, ())
                 if key not in cache:
                     cache[key] = private_driver_arguments(toolchain, is_cpp, root, [])
                 driver_args, query = cache[key]
-                result.metrics.setdefault("driver_queries", []).append(query)
             else:
                 entry = find_compdb_entry(compdb, file)
                 if entry is not None:
                     driver_args, query = resolve_entry_driver_arguments(entry, toolchain, is_cpp, Path(entry["directory"]), cache=cache)
-                    if query is not None:
-                        result.metrics.setdefault("driver_queries", []).append(query)
         except (ToolUnavailable, ValueError) as error:
             result.status = ERROR
             result.reason = str(error)
             continue
+        if query is not None:
+            q_key = tuple(str(x) for x in query.get("command", ()))
+            if q_key not in seen_queries:
+                seen_queries.add(q_key)
+                result.metrics.setdefault("driver_queries", []).append(query)
         native_config = clang_tidy_config(file, root, toolchain.skill_dir)
         result.metrics.setdefault("config_files", {})[relative(file, root)] = str(native_config)
         argv = [executable, "--experimental-custom-checks", f"--config-file={native_config}", *[f"--extra-arg={arg}" for arg in [*driver_args, *config.get("extra_args", [])]], file]

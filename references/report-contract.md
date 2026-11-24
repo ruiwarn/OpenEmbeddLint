@@ -25,11 +25,9 @@ Any executed `FAIL` makes the summary `FAIL`. Otherwise any `ERROR` makes it `ER
 
 ## Compact mode
 
-Compact JSON contains the summary and at most five relevant findings by default (configurable via `--limit N`, or all findings via `--actionable` / `--limit 0`), five incomplete checks and three gap summaries. Messages are bounded to 240 characters. Omitted counts are explicit. Optional SKIP reasons collapse to a count; required incompleteness remains visible. `unattributed` findings include `matched_baseline` coordinates when a moved/changed baseline diagnostic matched.
+Compact JSON contains the summary and at most five relevant findings by default (configurable via `--limit N`, or all findings via `--actionable` / `--limit 0`), five incomplete checks and three gap summaries. Messages are bounded to 240 characters. Omitted zero/empty optional fields (such as zero `warnings`, `gaps`, `skipped`, `suppressed`, empty `required_failures`, or redundant default classification `reason`s) are dropped to minimize tokens. When diagnostics are truncated, `issues_omitted` is paired with `omitted_by_rule` (top rule counts across omitted findings). Optional SKIP reasons collapse to a count; required incompleteness remains visible. `unattributed` findings include `matched_baseline` coordinates when a moved/changed baseline diagnostic matched, and clean passing runs omit `report`.
 
-A clean run with no issues or evidence gaps uses only `schema_version`, `status`, `complete`, `files`, `checks`, and optional `skipped`. Use `--detail` or the saved `report.json` for all diagnostics and artifacts. Logs are never inlined wholesale merely because they exist.
-
-Compact `checks` is an integer count; detailed `checks` is an array. Do not iterate compact `checks` or infer the report shape from a failing status. Request `--detail` when a consumer needs per-check records.
+Compact `checks` is an integer count; detailed `checks` is an array. Do not iterate compact `checks` or infer the report shape from a failing status. Request `--detail` when a consumer needs per-check records. Prefer `--format text` in AI terminal sessions for even lower token usage.
 
 ## Incremental outcomes
 
